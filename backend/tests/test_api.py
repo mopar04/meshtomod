@@ -26,3 +26,38 @@ def test_upload_stl():
 def test_upload_bad_format():
     res = client.post("/api/meshes", files={"file": ("box.dwg", b"xx")})
     assert res.status_code == 422
+
+
+def test_convert_and_download():
+    data = fixtures.l_bracket().export(file_type="stl")
+    res = client.post(
+        "/api/convert", files={"file": ("bracket.stl", data)}, data={"level": "functional"}
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["report"]["face_types"] == {"PLANE": 8}
+    assert body["report"]["fit"]["within_tolerance_pct"] == 100.0
+
+    step = client.get(body["downloads"]["step"])
+    assert step.status_code == 200
+    assert step.content.startswith(b"ISO-10303-21")
+    assert "bracket.step" in step.headers["content-disposition"]
+    for key in ("model_stl", "deviation_ply"):
+        assert client.get(body["downloads"][key]).status_code == 200
+
+
+def test_convert_scales_inches():
+    data = fixtures.box(size=(1.0, 2.0, 3.0), subdivisions=0).export(file_type="stl")
+    res = client.post("/api/convert", files={"file": ("b.stl", data)}, data={"units": "in"})
+    assert res.json()["report"]["size_mm"] == [25.4, 50.8, 76.2]
+
+
+def test_convert_curved_part_is_a_clear_422():
+    data = fixtures.cylinder().export(file_type="stl")
+    res = client.post("/api/convert", files={"file": ("c.stl", data)})
+    assert res.status_code == 422
+    assert "curved" in res.json()["detail"]
+
+
+def test_unknown_result_404():
+    assert client.get("/api/results/nope/model.step").status_code == 404

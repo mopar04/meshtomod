@@ -7,36 +7,58 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 
 export const ACCEPTED = ".stl,.obj,.ply,.3mf";
 
-/** Parse a mesh file in the browser into one geometry for the viewer. */
-export async function loadMeshFile(file: File): Promise<THREE.BufferGeometry> {
-  const ext = file.name.split(".").pop()?.toLowerCase();
-  const buffer = await file.arrayBuffer();
-  let geometry: THREE.BufferGeometry;
+export const UNITS = { mm: 1, cm: 10, m: 1000, in: 25.4 } as const;
+export type Units = keyof typeof UNITS;
 
+/** 3MF stores its units; the other formats are bare numbers and need asking. */
+export function needsUnits(file: File): boolean {
+  return !file.name.toLowerCase().endsWith(".3mf");
+}
+
+/** Parse a mesh file in the browser into one geometry, in the file's own units and axes. */
+export async function parseMeshFile(file: File): Promise<THREE.BufferGeometry> {
+  return parseBuffer(await file.arrayBuffer(), file.name.split(".").pop()?.toLowerCase() ?? "");
+}
+
+export function parseBuffer(buffer: ArrayBuffer, ext: string): THREE.BufferGeometry {
   switch (ext) {
     case "stl":
-      geometry = new STLLoader().parse(buffer);
-      break;
+      return new STLLoader().parse(buffer);
     case "ply":
-      geometry = new PLYLoader().parse(buffer);
-      break;
+      return new PLYLoader().parse(buffer);
     case "obj":
-      geometry = mergeObject(new OBJLoader().parse(new TextDecoder().decode(buffer)));
-      break;
+      return mergeObject(new OBJLoader().parse(new TextDecoder().decode(buffer)));
     case "3mf":
-      geometry = mergeObject(new ThreeMFLoader().parse(buffer));
-      break;
+      return mergeObject(new ThreeMFLoader().parse(buffer));
     default:
       throw new Error(`Unsupported file type: .${ext}`);
   }
+}
 
-  // Scans and CAD are Z-up; three.js is Y-up. Centre the part and stand it on the grid.
-  geometry.rotateX(-Math.PI / 2);
-  geometry.computeVertexNormals();
-  geometry.center();
-  geometry.computeBoundingBox();
-  geometry.translate(0, -geometry.boundingBox!.min.y, 0);
-  return geometry;
+/**
+ * Scans and CAD are Z-up in millimetres; three.js is Y-up. The scan decides the placement
+ * (centred, standing on the grid) and every result is moved the same way so they overlay.
+ */
+export class Placement {
+  private offset = new THREE.Vector3();
+
+  constructor(scan: THREE.BufferGeometry) {
+    const g = scan.clone().rotateX(-Math.PI / 2);
+    g.computeBoundingBox();
+    const box = g.boundingBox!;
+    this.offset.set(
+      -(box.min.x + box.max.x) / 2,
+      -box.min.y,
+      -(box.min.z + box.max.z) / 2,
+    );
+  }
+
+  apply(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+    geometry.rotateX(-Math.PI / 2);
+    geometry.translate(this.offset.x, this.offset.y, this.offset.z);
+    geometry.computeVertexNormals();
+    return geometry;
+  }
 }
 
 function mergeObject(root: THREE.Object3D): THREE.BufferGeometry {
