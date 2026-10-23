@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+.ruff_cache/
+
+# Node
+node_modules/
+frontend/dist/
+
+# Local data
+data/
+*.step
+*.stp
+!backend/tests/fixtures/**/*.step
+.env
+.DS_Store
