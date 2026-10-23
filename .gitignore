@@ -17,3 +17,4 @@ data/
 !backend/tests/fixtures/**/*.step
 .env
 .DS_Store
+*.tsbuildinfo

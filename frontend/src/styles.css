@@ -1,0 +1,29 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #e6e9ee;
+  background: #15181d;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+.app { display: flex; height: 100vh; }
+.panel { width: 280px; padding: 16px; border-right: 1px solid #2c323b; overflow-y: auto; }
+.panel h1 { font-size: 18px; margin: 0 0 16px; }
+.panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: #8b95a3; margin: 24px 0 8px; }
+.viewport { flex: 1; min-width: 0; }
+.button, .levels button {
+  display: inline-block; padding: 8px 12px; border-radius: 6px; border: 1px solid #3a424d;
+  background: #232830; color: inherit; font: inherit; cursor: pointer;
+}
+.levels { display: flex; gap: 6px; }
+.levels button { flex: 1; padding: 8px 4px; }
+.levels button.active { background: #2f6fde; border-color: #2f6fde; }
+.status { color: #8b95a3; font-size: 13px; word-break: break-word; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; margin: 8px 0; }
+dt { color: #8b95a3; }
+dd { margin: 0; text-align: right; }
+@media (max-width: 700px) {
+  .app { flex-direction: column; }
+  .panel { width: auto; border-right: 0; border-bottom: 1px solid #2c323b; }
+  .viewport { height: 60vh; }
+}
