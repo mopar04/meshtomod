@@ -20,6 +20,8 @@ NOISE_MAX_PATCH = 64
 NOISE_DENSIFY_DIVISIONS = 100
 NOISE_DENSE_VERTICES = 2000
 NOISE_OUTLIER_EDGES = 4.0
+DEVIATION_DIVISIONS = 50
+DEVIATION_CHUNK = 20_000
 # A fit tolerance must cover this many sigma of scan noise to separate noise from features.
 NOISE_SIGMAS = 3.5
 
@@ -153,9 +155,18 @@ def scan_quality(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ScanQuality:
 def deviations(mesh: trimesh.Trimesh, shape: cq.Shape, tol: float) -> np.ndarray:
     """Distance from every scan vertex to the model surface."""
     verts, tris = shape.tessellate(tol / 4, angularTolerance=0.1)
-    model = trimesh.Trimesh(np.array([v.toTuple() for v in verts]), np.array(tris), process=False)
-    _, dist, _ = trimesh.proximity.closest_point(model, mesh.vertices)
-    return dist
+    verts = np.array([v.toTuple() for v in verts])
+    # A big flat face tessellates into long thin triangles whose bounding boxes overlap half
+    # the part, which makes the nearest-triangle search explode; split them up first.
+    max_edge = float(np.linalg.norm(np.ptp(verts, axis=0))) / DEVIATION_DIVISIONS
+    verts, tris = trimesh.remesh.subdivide_to_size(verts, np.array(tris), max_edge)
+    model = trimesh.Trimesh(verts, tris, process=False)
+    points = np.asarray(mesh.vertices)
+    chunks = [
+        trimesh.proximity.closest_point(model, points[i : i + DEVIATION_CHUNK])[1]
+        for i in range(0, len(points), DEVIATION_CHUNK)
+    ]
+    return np.concatenate(chunks)
 
 
 def fit_score(mesh: trimesh.Trimesh, dist: np.ndarray, level: ToleranceLevel) -> FitScore:

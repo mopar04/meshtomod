@@ -8,6 +8,7 @@ when the scan's edges are ragged.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import cadquery as cq
@@ -125,7 +126,7 @@ def merge_coplanar(
     a = labels[mesh.face_adjacency[:, 0]]
     b = labels[mesh.face_adjacency[:, 1]]
     for x, y in zip(a, b, strict=True):
-        if x != y:
+        if x != y and x >= 0 and y >= 0:
             merged[x].neighbours.add(int(y))
             merged[y].neighbours.add(int(x))
     update_deviation(mesh, merged)
@@ -141,7 +142,7 @@ def check_supported(regions: list[Region], noise_mm: float, tol: float) -> None:
         1
         for r in regions
         for nb in r.neighbours
-        if nb > r.id and r.plane.normal @ by_id[nb].plane.normal > cos_min
+        if nb > r.id and nb in by_id and r.plane.normal @ by_id[nb].plane.normal > cos_min
     )
     # A flat face's residual is just scan noise; a curved one's is systematically larger.
     bent = [
@@ -207,23 +208,44 @@ def _corner(planes: list[Plane], hint: np.ndarray) -> np.ndarray:
     return np.linalg.lstsq(a, b, rcond=None)[0]
 
 
-def rebuild_solid(mesh: trimesh.Trimesh, regions: list[Region], tol: float) -> cq.Solid:
-    labels = face_labels(regions, len(mesh.faces))
+def rebuild_solid(
+    mesh: trimesh.Trimesh,
+    regions: list[Region],
+    tol: float,
+    labels: np.ndarray | None = None,
+    through: Callable[[int, int], int | None] | None = None,
+) -> cq.Solid:
+    """Solid bounded by the given planes, with corners from plane intersections.
+
+    labels may also mark faces that belong to something other than these planes (a fillet, a
+    hole); through(region, other) then says which plane to treat that neighbour as (the plane
+    on the far side of a fillet), or None to ignore it (a hole, which leaves the face whole).
+    """
+    if labels is None:
+        labels = face_labels(regions, len(mesh.faces))
     by_id = {r.id: r for r in regions}
     boundary = _directed_boundary(mesh, labels)
 
     corner_cache: dict[frozenset[int], np.ndarray] = {}
     face_loops: dict[int, list[list[frozenset[int]]]] = {}
     for rid, edges in boundary.items():
+        if rid not in by_id:
+            continue
         face_loops[rid] = []
         for loop in _trace_loops(edges):
             # Neighbour sequence with consecutive repeats collapsed, cyclically.
             seq: list[tuple[int, int]] = []
             for v, nb in loop:
+                if nb not in by_id:
+                    nb = through(rid, nb) if through else None
+                    if nb is None:
+                        continue
                 if not seq or seq[-1][1] != nb:
                     seq.append((v, nb))
             if len(seq) > 1 and seq[0][1] == seq[-1][1]:
                 seq[0] = seq.pop()
+            if not seq:
+                continue  # the rim of a hole: the face is rebuilt without it
             if len(seq) < 3:
                 raise UnsupportedGeometry(
                     f"Flat region {rid} meets fewer than 3 neighbours along one boundary; "

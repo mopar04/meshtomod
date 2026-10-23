@@ -108,7 +108,7 @@ def face_labels(regions: list[Region], face_count: int) -> np.ndarray:
     return labels
 
 
-def _face_neighbours(mesh: Geo) -> list[list[int]]:
+def face_neighbours(mesh: Geo) -> list[list[int]]:
     nbrs: list[list[int]] = [[] for _ in range(len(mesh.faces))]
     for a, b in mesh.face_adjacency:
         nbrs[a].append(int(b))
@@ -116,7 +116,7 @@ def _face_neighbours(mesh: Geo) -> list[list[int]]:
     return nbrs
 
 
-def _smoothed_normals(mesh: Geo, rounds: int) -> np.ndarray:
+def smoothed_normals(mesh: Geo, rounds: int = SMOOTHING_ROUNDS) -> np.ndarray:
     """Edge-preserving (bilateral) smoothing of face normals, so scanner noise does not break
     up flat areas while sharp edges stay sharp. Only used for the angle test; distances always
     use the raw scan."""
@@ -135,8 +135,8 @@ def _smoothed_normals(mesh: Geo, rounds: int) -> np.ndarray:
 
 def _grow_regions(mesh: Geo, level: ToleranceLevel) -> np.ndarray:
     tri_verts = mesh.vertices[mesh.faces]  # (F, 3, 3)
-    nbrs = _face_neighbours(mesh)
-    normals = _smoothed_normals(mesh, SMOOTHING_ROUNDS)
+    nbrs = face_neighbours(mesh)
+    normals = smoothed_normals(mesh)
     cos_max = np.cos(np.radians(MAX_GROW_ANGLE_DEG))
     tol = level.fit_tolerance_mm
 
