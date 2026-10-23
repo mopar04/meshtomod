@@ -1,6 +1,6 @@
 # Technical plan
 
-Full version with diagram: [NUrbSmith technical plan](https://claude.ai/artifact/LAaeiRK5iiGU7FMVsyvpKS)
+Full version with diagram: [NURBSmith technical plan](https://claude.ai/artifact/LAaeiRK5iiGU7FMVsyvpKS)
 (Claude Doc). This file is the in-repo copy; keep both in step when the design changes.
 
 ## Approach
@@ -43,6 +43,19 @@ script from the recipe (M4).
 
 Defined in `backend/nurbsmith/tolerance.py`; users can override individual values.
 
+## Confidence metrics
+
+Shown with every result, so a rough scan never turns into a model of its own artifacts.
+
+- **Scan quality (before fitting):** scanner noise (1 sigma, from local plane fits that ignore
+  sharp edges) and coverage gaps. A fit tolerance has to cover 3.5 sigma of noise. If the
+  chosen level is tighter than that, the fit is widened to what the noise allows, the warning
+  says so, and the tightest level the scan supports is suggested.
+- **Fit score (after fitting):** % of scan surface area within the chosen tolerance of the
+  model, plus mean, 95th percentile and worst deviation. A colour map shows where the misses
+  are: green within half the tolerance, yellow at the tolerance, red at twice the tolerance.
+  The score is always measured against the level the user picked, so it stays honest.
+
 ## Sink and extrude
 
 User picks a point and a shape (rectangle, circle, slot, rounded rectangle) with size in mm or
@@ -52,12 +65,19 @@ hole pattern. Each step goes into the feature recipe so it stays editable in CAD
 
 ## Milestones
 
-- **M0 Scaffold**: repo, API upload, viewer, CI, synthetic fixtures. (current)
-- **M1 Planar parts**: segmentation, plane fitting and snapping, stitching, STEP export.
+- **M0 Scaffold**: repo, API upload, viewer, CI, synthetic fixtures. (done)
+- **M1 Planar parts**: segmentation, plane fitting and snapping, stitching, STEP export,
+  confidence metrics, units prompt, deviation view. (done)
 - **M2 Mechanical features**: cylinders, cones, holes with standard sizes, fillets, chamfers,
   tolerance levels wired through, deviation heat map.
 - **M3 Freeform + sink/extrude**: B-spline patches, sink/extrude UI, feature recipe.
+  **Thicken skin** for one-sided scans: wall thickness (default 3 mm), direction (in, out,
+  centred), and edge finish (square, chamfer, or full round = thickness / 2). The ragged scan
+  border is trimmed to a smooth outline first.
 - **M4 Editable history**: Onshape FeatureScript and Fusion script from the recipe.
+- **M5 Combine scans**: convert two scans, position them in the viewer (drag and rotate,
+  face-to-face and axis snaps, or 3-point alignment), boolean union, then fillet or chamfer the
+  new seam. Parts that don't touch get a connecting extrude or loft. Recorded in the recipe.
 
 Out of scope for now: accounts and billing, modelled threads (cylinder + thread note instead),
 assemblies, Shapr3D-specific output (it imports the same STEP).
@@ -69,3 +89,7 @@ assemblies, Shapr3D-specific output (it imports the same STEP).
 - Watertight stitching: rebuild edges from intersections, validate with BRepCheck.
 - Noisy or incomplete scans: repair step; user can tag regions as plane or ignore.
 - Large scans: adaptive decimation, background jobs with progress.
+- Overlap with ScanRuler (CNC Kitchen), whose "Reverse Engineer" workspace (2026-10-21) has an
+  AI agent rebuild scans as parametric CAD. Our edge: one-click automatic conversion,
+  tolerance levels, sink/extrude, thicken, combine scans, and editable history in Fusion and
+  Onshape. Its code is AGPL like ours, so we can reuse it with credit (see UI_REFERENCES.md).

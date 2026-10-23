@@ -21,6 +21,10 @@ source of truth: read and update the docs below so any session can pick up the w
   - `mesh_io.py` load and summarise meshes (trimesh)
   - `tolerance.py` accuracy level presets
   - `step_io.py` STEP read/write and face-type checks (CadQuery / OpenCASCADE)
+  - `segment.py` region growing into planar regions, noise filter merges
+  - `brep.py` plane snapping, curved-part check, solid rebuild from plane intersections
+  - `quality.py` scan noise estimate, fit score, deviation colours
+  - `convert.py` the pipeline: repair, quality, segment, snap, rebuild, score
   - `fixtures.py` synthetic meshes with known answers, plus scanner-like noise
   - `api.py` HTTP API
 - `backend/tests/`: pytest suite
@@ -44,6 +48,9 @@ npm run dev        # proxies /api to :8000 (override with API_URL)
 ```
 
 ## Conventions
+- Display name is **NURBSmith**; code identifiers are `nurbsmith`.
+- License is AGPL-3.0. Reusing CNC Kitchen's AGPL code (ScanRuler, BumpMesh) is fine with
+  credit in the file header.
 - Units are millimetres internally. Inches are a display/input concern only.
 - Every geometry stage gets tests against `fixtures.py` meshes with known ground truth, with and
   without noise. Check results by face type (`face_type_counts`) and deviation, not just "it ran".

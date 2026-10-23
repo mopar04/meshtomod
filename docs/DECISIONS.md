@@ -2,6 +2,25 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-23 (M1)
+- **Open source under AGPL-3.0, with a donate link, no commercial plans** (Zac). This matches
+  CNC Kitchen's tools and lets us reuse ScanRuler code with credit. Set the donate link with
+  `VITE_DONATE_URL`. The repo stays private until Zac decides to make it public.
+- **Display name is "NURBSmith"** (NURB in capitals). Code identifiers stay `nurbsmith`.
+- **UI follows BumpMesh and ScanRuler** (Zac): see `docs/UI_REFERENCES.md`.
+- **Never model scan noise.** Scan noise sets a floor on the fit tolerance (3.5 sigma). If the
+  chosen level is tighter, we fit looser and warn, rather than chase artifacts. The fit score
+  is still measured against the level the user picked.
+- **Corners come from plane intersections, not mesh vertices.** Each region's boundary gives
+  the order of its neighbours, and each change of neighbour is a corner (3-plane
+  intersection). The output is exact even when the scan's edges are ragged.
+- **Curved parts are refused in M1, not faceted.** A 12-sided prism can be "within tolerance"
+  of a cylinder but is the wrong CAD. Curved surfaces are detected (shallow creases, or a
+  region residual well above the noise) and get a clear message until M2.
+- **Edge-preserving normal smoothing** (bilateral, 8 rounds, 60 deg cutoff) before region
+  growing. Plain averaging blurred edges; raw normals fragmented noisy faces.
+- **Scope added:** Thicken skin (M3) and Combine scans (M5), per Zac.
+
 ## 2026-10-23
 - **Target CAD tools:** Fusion 360 and Onshape first. Shapr3D gets the same STEP (it imports STEP
   fine but has no parametric history), no special handling.
