@@ -16,6 +16,8 @@ from .tolerance import ToleranceLevel
 
 __all__ = ["ConversionResult", "UnsupportedGeometry", "convert", "repair"]
 
+MIN_FEATURE_TOLS = 5.0
+
 
 @dataclass
 class ConversionResult:
@@ -58,11 +60,14 @@ def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
     # Never chase scan noise: if the scan is rougher than the chosen level, fit to what the
     # noise allows (and say so in the scan report) instead of modelling artifacts.
     working = level
-    if scan.effective_tolerance_mm > level.fit_tolerance_mm:
-        widen = scan.effective_tolerance_mm / level.fit_tolerance_mm
+    tol = scan.effective_tolerance_mm
+    if tol > level.fit_tolerance_mm:
+        # Features smaller than a few tolerances can't be told from noise. Use the ratio of the
+        # loosest preset rather than scaling the level's own, so a widened Functional or
+        # Precise never ends up coarser than Rough would be.
         working = level.with_overrides(
-            fit_tolerance_mm=scan.effective_tolerance_mm,
-            min_feature_mm=level.min_feature_mm * widen,
+            fit_tolerance_mm=tol,
+            min_feature_mm=max(level.min_feature_mm, MIN_FEATURE_TOLS * tol),
         )
 
     regions = segment_planes(mesh, working)

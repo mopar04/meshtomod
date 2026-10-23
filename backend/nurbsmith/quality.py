@@ -8,10 +8,18 @@ import cadquery as cq
 import numpy as np
 import trimesh
 from scipy.spatial import cKDTree
+from scipy.stats import chi2
 
 from .tolerance import LEVELS, ToleranceLevel
 
 NOISE_NEIGHBOURS = 16
+NOISE_QUANTILE = 0.25
+LINE_LIKE_RATIO = 0.25
+NOISE_PATCH_SIGMAS = 8.0
+NOISE_MAX_PATCH = 64
+NOISE_DENSIFY_DIVISIONS = 100
+NOISE_DENSE_VERTICES = 2000
+NOISE_OUTLIER_EDGES = 4.0
 # A fit tolerance must cover this many sigma of scan noise to separate noise from features.
 NOISE_SIGMAS = 3.5
 
@@ -45,27 +53,66 @@ class FitScore:
 
 
 def estimate_noise(mesh: trimesh.Trimesh) -> float:
-    """Typical RMS of local plane fits, using only neighbours that face the same way, so patches
-    that straddle a sharp edge do not count as noise."""
-    verts, normals = mesh.vertices, mesh.vertex_normals
-    k = min(NOISE_NEIGHBOURS, len(verts))
-    if k < 6:
+    """Scanner noise (1 sigma) from local plane fits.
+
+    Patches that straddle an edge or a curve read high, so we take a low quantile of the patch
+    residuals (the cleanly flat patches) and calibrate it against the chi-square distribution
+    pure noise would give. Line-like patches (points strung along one edge of a decimated mesh)
+    are skipped: a plane through a line fits them perfectly whatever the noise. A second pass
+    widens each patch to several sigma, because a patch smaller than the noise is just a blob
+    and fits a plane too well. Vertex normals are not used; on noisy scans they are noise.
+    """
+    verts = _densified(mesh)
+    if len(verts) < NOISE_NEIGHBOURS:
         return 0.0
     tree = cKDTree(verts)
     step = max(1, len(verts) // 4000)  # subsample large scans
-    centres = np.arange(0, len(verts), step)
-    _, idx = tree.query(verts[centres], k=k)
-    same_side = np.einsum("ijk,ik->ij", normals[idx], normals[centres]) > np.cos(np.radians(30))
+    centres = verts[::step]
+    dist, idx = tree.query(centres, k=NOISE_NEIGHBOURS)
+    sigma = _patch_noise([verts[row] for row in idx])
 
-    rms = []
-    for row, keep in zip(idx, same_side, strict=True):
-        pts = verts[row[keep]]
-        if len(pts) < 6:
-            continue
-        s = np.linalg.svd(pts - pts.mean(axis=0), compute_uv=False)[-1]
-        # The fit absorbs 3 degrees of freedom; correct the bias.
-        rms.append(s / np.sqrt(len(pts) - 3))
-    return float(np.median(rms)) if rms else 0.0
+    radius = max(float(np.median(dist[:, -1])), NOISE_PATCH_SIGMAS * sigma)
+    if sigma > 0 and radius > np.median(dist[:, -1]):
+        rng = np.random.default_rng(0)
+        patches = []
+        for row in tree.query_ball_point(centres, radius):
+            if len(row) > NOISE_MAX_PATCH:
+                row = rng.choice(row, NOISE_MAX_PATCH, replace=False)
+            if len(row) >= NOISE_NEIGHBOURS // 2:
+                patches.append(verts[row])
+        sigma = _patch_noise(patches)
+    return sigma
+
+
+def _densified(mesh: trimesh.Trimesh) -> np.ndarray:
+    """Vertices, plus extra points on any triangle much larger than the scan's sampling.
+
+    A coarse mesh (an exported CAD model, a heavily decimated scan) has almost no vertices away
+    from its edges, so every patch would straddle one. Points added inside big triangles lie
+    exactly on them and show that the faces themselves are flat. On a dense scan only outlier
+    triangles are split, since interpolated points would understate the noise.
+    """
+    max_edge = float(np.linalg.norm(mesh.extents)) / NOISE_DENSIFY_DIVISIONS
+    if len(mesh.vertices) >= NOISE_DENSE_VERTICES:
+        max_edge = max(max_edge, NOISE_OUTLIER_EDGES * float(np.median(mesh.edges_unique_length)))
+    if mesh.edges_unique_length.max() <= max_edge:
+        return mesh.vertices
+    verts, _ = trimesh.remesh.subdivide_to_size(mesh.vertices, mesh.faces, max_edge)
+    return verts
+
+
+def _patch_noise(patches: list[np.ndarray]) -> float:
+    rms, dofs = [], []
+    for pts in patches:
+        s = np.linalg.svd(pts - pts.mean(axis=0), compute_uv=False)
+        if s[1] > LINE_LIKE_RATIO * s[0]:
+            rms.append(s[2] / np.sqrt(len(pts) - 3))
+            dofs.append(len(pts) - 3)
+    if not rms:
+        return 0.0
+    dof = float(np.median(dofs))
+    calibration = np.sqrt(chi2.ppf(NOISE_QUANTILE, dof) / dof)
+    return float(np.quantile(rms, NOISE_QUANTILE) / calibration)
 
 
 def scan_quality(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ScanQuality:
