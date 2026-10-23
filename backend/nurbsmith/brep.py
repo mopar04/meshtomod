@@ -23,12 +23,17 @@ from OCP.TopoDS import TopoDS
 from .segment import Plane, Region, face_labels, update_deviation
 from .tolerance import ToleranceLevel
 
-# Adjacent regions meeting at less than this are a curved surface faceted into strips, which
-# planes-only reconstruction cannot represent faithfully.
+# Adjacent regions meeting at less than this (but not parallel) are a curved surface faceted
+# into strips.
 MIN_CREASE_DEG = 20.0
-# A region whose plane-fit RMS exceeds both of these is curved, not flat-with-noise.
-CURVED_NOISE_RATIO = 2.0
-CURVED_TOL_RATIO = 0.25
+# A region whose plane-fit RMS exceeds this share of the tolerance is curved.
+CURVED_TOL_RATIO = 0.5
+# Beyond this share of the surface, curved panels are too much to approximate with planes.
+FREEFORM_SHARE = 0.15
+
+
+# Neighbour id for a region boundary that runs along a gap in the scan.
+GAP = -2
 
 
 class UnsupportedGeometry(ValueError):
@@ -106,7 +111,10 @@ def merge_coplanar(
         for nb in r.neighbours:
             o = by_id[nb]
             same_dir = r.plane.normal @ o.plane.normal > 0.9999
-            if same_dir and abs(r.plane.offset - o.plane.offset) <= level.fit_tolerance_mm:
+            # A step smaller than the smallest kept feature (embossed text, a mould line, a
+            # warp in the scan) is not a feature: one face.
+            step = max(level.fit_tolerance_mm, level.min_feature_mm / 2)
+            if same_dir and abs(r.plane.offset - o.plane.offset) <= step:
                 parent[find(r.id)] = find(o.id)
 
     groups: dict[int, list[Region]] = {}
@@ -133,26 +141,40 @@ def merge_coplanar(
     return merged
 
 
-def check_supported(regions: list[Region], noise_mm: float, tol: float) -> None:
-    """Planes only in this version: refuse parts whose 'flat' regions are really curved, rather
-    than silently returning a faceted approximation."""
+def check_supported(regions: list[Region], level: ToleranceLevel) -> str | None:
+    """Refuse parts that are mostly freeform, rather than return a faceted approximation.
+
+    Holes, bosses and fillets are already out of the way by now. Whatever is left that meets a
+    neighbour at a shallow angle, or bows well beyond the tolerance, is part of a curved panel.
+    A little of that (a rounded rim, a blended corner) is approximated with flat faces and
+    noted; a lot of it is a sculpted part that needs freeform surfaces. A face that is only
+    warped a little stays one plane and just costs some fit score.
+    """
     by_id = {r.id: r for r in regions}
     cos_min = np.cos(np.radians(MIN_CREASE_DEG))
-    shallow = sum(
-        1
-        for r in regions
-        for nb in r.neighbours
-        if nb > r.id and nb in by_id and r.plane.normal @ by_id[nb].plane.normal > cos_min
-    )
-    # A flat face's residual is just scan noise; a curved one's is systematically larger.
-    bent = [
-        r for r in regions if r.rms_mm > max(CURVED_NOISE_RATIO * noise_mm, CURVED_TOL_RATIO * tol)
-    ]
-    if shallow or bent:
+    cos_parallel = np.cos(np.radians(level.angle_snap_deg))
+    curved: set[int] = set()
+    for r in regions:
+        for nb in r.neighbours:
+            if nb in by_id and cos_parallel > r.plane.normal @ by_id[nb].plane.normal > cos_min:
+                # The smaller of the two is the facet; the bigger is usually a real face.
+                curved.add(min((r, by_id[nb]), key=lambda x: x.area).id)
+        if r.rms_mm > CURVED_TOL_RATIO * level.fit_tolerance_mm:
+            curved.add(r.id)
+    if not curved:
+        return None
+    area = sum(by_id[i].area for i in curved)
+    total = sum(r.area for r in regions)
+    if area > FREEFORM_SHARE * total:
         raise UnsupportedGeometry(
-            "This part has curved surfaces (like round holes, bosses or panels). This version "
-            "only rebuilds flat-faced parts; curved surfaces are the next milestone."
+            "This part is largely made of curved surfaces other than holes, round bosses and "
+            "fillets (like a domed or sculpted panel). Freeform surfaces are the next "
+            "milestone."
         )
+    return (
+        f"About {100 * area / total:.0f}% of the surface is gently curved and was approximated "
+        "with flat faces."
+    )
 
 
 # ---------------------------------------------------------------------------------------------
@@ -175,6 +197,15 @@ def _directed_boundary(
             i = tri.index(v1)
             start, end = (v1, v2) if tri[(i + 1) % 3] == v2 else (v2, v1)
             out.setdefault(int(own), {}).setdefault(int(start), []).append((int(end), int(other)))
+    # Edges of gaps in the scan: they close each region's loops, and the neighbour is GAP.
+    directed = np.stack([mesh.faces, np.roll(mesh.faces, -1, axis=1)], axis=2).reshape(-1, 2)
+    _, inverse, counts = np.unique(
+        np.sort(directed, axis=1), axis=0, return_inverse=True, return_counts=True
+    )
+    for idx in np.flatnonzero(counts[inverse.ravel()] == 1):
+        start, end = directed[idx]
+        own = labels[idx // 3]
+        out.setdefault(int(own), {}).setdefault(int(start), []).append((int(end), GAP))
     return out
 
 

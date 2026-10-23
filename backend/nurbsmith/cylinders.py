@@ -371,3 +371,91 @@ def shared_lengths(mesh: Geo, labels: np.ndarray) -> dict[tuple[int, int], float
         key = (int(min(la, lb)), int(max(la, lb)))
         shared[key] = shared.get(key, 0.0) + float(length)
     return shared
+
+
+def consolidate(
+    mesh: Geo, planes: list[Region], patches: list[CurvedPatch], level: ToleranceLevel
+) -> tuple[list[Region], list[CurvedPatch], np.ndarray]:
+    """Tidy the patches up, then link everything; returns (planes, patches, labels).
+
+    Two cleanups, repeated until nothing changes: neighbouring patches that one cylinder fits
+    become one patch (noise can split a fillet in two), and a plane strip that one cylinder
+    fits together with a neighbouring patch becomes part of it (on a noisy scan a wide strip
+    of a fillet can look flat enough to stay a plane).
+    """
+    tol = level.fit_tolerance_mm
+    sin_side = np.sin(np.radians(MAX_AXIS_TILT_DEG))
+    labels = link(mesh, planes, patches)
+
+    def points(faces: np.ndarray) -> np.ndarray:
+        return mesh.vertices[np.unique(mesh.faces[faces])]
+
+    changed = True
+    while changed:
+        changed = False
+        by_id = {x.id: x for x in [*planes, *patches]}
+
+        for p in patches:
+            for q in [by_id[n] for n in p.neighbours]:
+                if not isinstance(q, CurvedPatch) or q.convex != p.convex:
+                    continue
+                if abs(p.cylinder.axis @ q.cylinder.axis) < np.cos(np.radians(MAX_AXIS_TILT_DEG)):
+                    continue
+                faces = np.concatenate([p.faces, q.faces])
+                cyl = fit_cylinder(points(faces), p.cylinder)
+                if np.percentile(np.abs(cyl.distance(points(faces))), FIT_PERCENTILE) > tol:
+                    continue
+                merged = _describe(mesh, p.id, faces, cyl)
+                if merged is None:
+                    continue
+                patches = [x for x in patches if x is not p and x is not q] + [merged]
+                changed = True
+                break
+            if changed:
+                break
+        if changed:
+            labels = link(mesh, planes, patches)
+            continue
+
+        for p in patches:
+            sides = [
+                by_id[n]
+                for n in p.neighbours
+                if isinstance(by_id[n], Region)
+                and abs(by_id[n].plane.normal @ p.cylinder.axis) <= sin_side
+            ]
+            for side in sorted(sides, key=lambda r: r.area):
+                faces = np.concatenate([p.faces, side.faces])
+                cyl = fit_cylinder(points(faces), p.cylinder)
+                if np.percentile(np.abs(cyl.distance(points(faces))), FIT_PERCENTILE) > tol:
+                    continue
+                patch = _describe(mesh, p.id, faces, cyl)
+                if patch is None:
+                    continue
+                patches = [x for x in patches if x is not p] + [patch]
+                planes = [r for r in planes if r is not side]
+                changed = True
+                break
+            if changed:
+                break
+        if changed:
+            labels = link(mesh, planes, patches)
+
+    # Where fillets meet at a corner the scan has a small blended patch that is neither plane
+    # nor cylinder. Filleting the edges in CAD recreates it, so it just joins a fillet.
+    by_id = {x.id: x for x in [*planes, *patches]}
+    shared = shared_lengths(mesh, labels)
+    corners = []
+    for r in planes:
+        round_nbrs = [by_id[n] for n in r.neighbours if isinstance(by_id[n], CurvedPatch)]
+        if len(round_nbrs) < 2 or len(round_nbrs) < len(r.neighbours) - 1:
+            continue
+        if r.area > sum((2 * p.cylinder.radius) ** 2 for p in round_nbrs):
+            continue
+        best = max(round_nbrs, key=lambda p: shared.get((min(r.id, p.id), max(r.id, p.id)), 0))
+        best.faces = np.concatenate([best.faces, r.faces])
+        corners.append(r)
+    if corners:
+        planes = [r for r in planes if not any(r is c for c in corners)]
+        labels = link(mesh, planes, patches)
+    return planes, patches, labels

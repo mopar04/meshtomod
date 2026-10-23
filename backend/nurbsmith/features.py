@@ -14,7 +14,6 @@ import cadquery as cq
 import numpy as np
 from scipy.optimize import minimize_scalar
 
-from .brep import UnsupportedGeometry
 from .cylinders import FULL_COVERAGE, CurvedPatch, Cylinder, fit_circle_on_axis
 from .segment import Geo, Plane, Region
 from .tolerance import ToleranceLevel
@@ -23,6 +22,8 @@ from .tolerance import ToleranceLevel
 # (tangent to a fillet) if within this angle of perpendicular.
 END_ANGLE_DEG = 15.0
 SIDE_ANGLE_DEG = 15.0
+# The two faces a fillet joins must meet at an angle (|cos| below this), not be parallel.
+MAX_SIDE_DOT = np.cos(np.radians(20.0))
 # Snap a size to a standard value if that moves the surface by at most this share of the
 # fit tolerance.
 SNAP_SHARE = 0.5
@@ -67,7 +68,7 @@ STANDARD_HOLES: list[tuple[float, str]] = sorted(
 @dataclass
 class Feature:
     kind: str
-    """"hole", "boss" or "fillet"."""
+    """"hole", "boss", "fillet", or "sharp" for a fillet the accuracy level leaves out."""
     patch: int
     radius: float
     axis: np.ndarray
@@ -105,9 +106,10 @@ def plan_features(
     patches: list[CurvedPatch],
     shared: dict[tuple[int, int], float],
     level: ToleranceLevel,
-) -> tuple[list[Feature], set[int]]:
-    """Decide what each patch is. Returns the features and the planes that belong to a
-    feature rather than to the base solid (the floor of a blind hole, the top of a boss)."""
+) -> tuple[list[Feature], set[int], str | None]:
+    """Decide what each patch is. Returns the features, the planes that belong to a feature
+    rather than to the base solid (the floor of a blind hole, the top of a boss), and a note
+    on any curved areas left to the flat faces around them because they fit no feature."""
     tol = level.fit_tolerance_mm
     by_id = {r.id: r for r in planes}
     cos_end = np.cos(np.radians(END_ANGLE_DEG))
@@ -115,6 +117,7 @@ def plan_features(
     directions = _directions(planes)
     features: list[Feature] = []
     caps: set[int] = set()
+    skipped: list[str] = []
 
     for patch in patches:
         cyl = patch.cylinder
@@ -129,9 +132,11 @@ def plan_features(
             open_ends = [r for r in ends if r not in cap_ends]
             kind = "boss" if patch.convex else "hole"
             if kind == "boss" and (len(cap_ends) != 1 or len(open_ends) != 1):
-                raise UnsupportedGeometry(_odd(f"a round boss (Ø{2 * cyl.radius:.1f} mm)"))
+                skipped.append(f"a round boss \u00d8{2 * cyl.radius:.1f} mm without a flat top")
+                continue
             if kind == "hole" and len(cap_ends) > 1:
-                raise UnsupportedGeometry(_odd("a closed round cavity"))
+                skipped.append("a closed round cavity")
+                continue
             radius, label = _snap_radius(cyl.radius, tol, kind)
             if kind == "boss":
                 start = _axis_hit(cyl, open_ends[0].plane)
@@ -167,54 +172,83 @@ def plan_features(
 
         # Part of the way round: a fillet between the two planes it is tangent to.
         if len(sides) < 2:
-            raise UnsupportedGeometry(_odd(f"a curved surface (radius about {cyl.radius:.1f} mm)"))
+            skipped.append(f"a curved surface (radius about {cyl.radius:.1f} mm)")
+            continue
         sides.sort(key=lambda r: -shared.get((min(r.id, patch.id), max(r.id, patch.id)), 0.0))
-        a, b = sides[0], sides[1]
+        a = sides[0]
+        crossing = [r for r in sides[1:] if abs(r.plane.normal @ a.plane.normal) < MAX_SIDE_DOT]
+        if not crossing:
+            skipped.append(f"a curved surface (radius about {cyl.radius:.1f} mm)")
+            continue
+        b = crossing[0]
         radius = _fillet_radius(a.plane, b.plane, patch.convex, pts, cyl.radius)
         radius, label = _snap_radius(radius, tol, "fillet")
+        # Below the level's smallest kept fillet, the edge is simply made sharp.
+        kind = "fillet"
+        if not level.keep_fillets or radius < level.min_fillet_radius_mm:
+            kind = "sharp"
         axis = np.cross(a.plane.normal, b.plane.normal)
         axis /= np.linalg.norm(axis)
         features.append(
-            Feature("fillet", patch.id, radius, axis, pts.mean(0), pts.mean(0), (a.id, b.id))
+            Feature(kind, patch.id, radius, axis, pts.mean(0), pts.mean(0), (a.id, b.id))
         )
-    return features, caps
+    return features, caps, _skipped_note(skipped)
 
 
-def apply_features(base: cq.Solid, features: list[Feature], planes: list[Region]) -> cq.Solid:
-    """Base solid, then bosses, then fillets, then holes: the order a designer would use."""
+def apply_features(
+    base: cq.Solid, features: list[Feature], planes: list[Region]
+) -> tuple[cq.Solid, str | None]:
+    """Base solid, then bosses, then fillets, then holes: the order a designer would use.
+
+    A feature that OpenCASCADE cannot apply (a fillet too big for its edge, say) is left out
+    and noted, rather than failing the whole part."""
     by_id = {r.id: r for r in planes}
     solid: cq.Shape = base
+    failed: list[str] = []
+
+    def attempt(f: Feature, op) -> None:
+        nonlocal solid
+        try:
+            result = op(solid)
+            parts = result.Solids()
+            if len(parts) == 1 and parts[0].isValid():
+                solid = parts[0]
+                return
+        except Exception:  # OpenCASCADE raises a variety of errors here
+            pass
+        failed.append(f.kind)
+
     for f in features:
         if f.kind == "boss":
-            solid = solid.fuse(
-                _rod(f.start - OVERSHOOT_MM * _unit(f.end - f.start), f.end, f.radius)
-            )
-    solid = solid.clean()
+            rod = _rod(f.start - OVERSHOOT_MM * _unit(f.end - f.start), f.end, f.radius)
+            attempt(f, lambda s, rod=rod: s.fuse(rod).clean())
     for f in features:
         if f.kind == "fillet":
-            edges = _edges_on(solid, by_id[f.planes[0]].plane, by_id[f.planes[1]].plane)
-            if not edges:
-                raise UnsupportedGeometry("Could not find the edge for a fillet.")
-            solid = solid.fillet(f.radius, edges)
+            a, b = by_id[f.planes[0]].plane, by_id[f.planes[1]].plane
+            attempt(f, lambda s, a=a, b=b, r=f.radius: s.fillet(r, _edges_on(s, a, b)))
     for f in features:
         if f.kind == "hole":
             d = _unit(f.end - f.start)
-            start = f.start - (OVERSHOOT_MM * d if f.through else 0 * d)
-            solid = solid.cut(_rod(start, f.end + OVERSHOOT_MM * d, f.radius))
-    solid = solid.clean()
-    solids = solid.Solids() if not isinstance(solid, cq.Solid) else [solid]
-    if len(solids) != 1:
-        raise UnsupportedGeometry("Applying the features did not leave one solid.")
-    return solids[0]
+            start = f.start - OVERSHOOT_MM * d if f.through else f.start
+            rod = _rod(start, f.end + OVERSHOOT_MM * d, f.radius)
+            attempt(f, lambda s, rod=rod: s.cut(rod).clean())
+    note = None
+    if failed:
+        note = f"Could not apply {len(failed)} feature(s) ({', '.join(failed)}); left out."
+    return solid, note
 
 
 # ---------------------------------------------------------------------------------------------
 
 
-def _odd(what: str) -> str:
+def _skipped_note(skipped: list[str]) -> str | None:
+    if not skipped:
+        return None
+    listed = "; ".join(sorted(set(skipped)))
     return (
-        f"This part has {what} that this version can't turn into a feature yet. Holes, round "
-        "bosses and fillets between two flat faces are supported."
+        f"{len(skipped)} curved area{'s' if len(skipped) > 1 else ''} could not be made into a "
+        f"hole, boss or fillet yet and {'were' if len(skipped) > 1 else 'was'} left to the flat "
+        f"faces around {'them' if len(skipped) > 1 else 'it'} ({listed})."
     )
 
 

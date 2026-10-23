@@ -32,6 +32,8 @@ class ScanQuality:
     """Estimated scanner noise (1 sigma) from local plane fits."""
     open_edges: int
     """Mesh edges with only one triangle: gaps in scan coverage."""
+    loose_pieces: int
+    """Small pieces not attached to the part (turntable, stray fragments) that were dropped."""
     suggested_level: str
     """Tightest level whose fit tolerance comfortably exceeds the noise."""
     effective_tolerance_mm: float
@@ -142,10 +144,15 @@ def scan_quality(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ScanQuality:
     if open_edges:
         gap = f"The scan has gaps ({open_edges} open edges); they will be closed by the model."
         warning = f"{warning} {gap}" if warning else gap
+    loose = int(mesh.metadata.get("loose_pieces", 0))
+    if loose:
+        note = f"Ignored {loose} loose piece{'s' if loose > 1 else ''} not attached to the part."
+        warning = f"{warning} {note}" if warning else note
 
     return ScanQuality(
         noise_mm=round(noise, 4),
         open_edges=open_edges,
+        loose_pieces=loose,
         suggested_level=(suggested or LEVELS["rough"]).key,
         effective_tolerance_mm=effective,
         warning=warning,
