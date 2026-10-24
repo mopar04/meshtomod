@@ -54,7 +54,13 @@ def build() -> cq.Workplane:
     note("partition", "thin wall", (-12, 0), thickness=1.6, height=14.0)
 
     # Tube standing on the floor, open at the top and through the floor.
-    tube = cq.Workplane("XY").workplane(offset=FLOOR).center(16, 0).circle(10.0).extrude(12.0)
+    tube = (
+        cq.Workplane("XY")
+        .workplane(offset=FLOOR)
+        .center(16, 0)
+        .circle(10.0)
+        .extrude(12.0)
+    )
     part = part.union(tube)
     bore = cq.Workplane("XY").center(16, 0).circle(7.5).extrude(H)
     part = part.cut(bore)
@@ -74,7 +80,9 @@ def main(out: Path) -> None:
                         angularTolerance=0.05)  # fmt: skip
     (out / "nurbsmith_thin_wall.json").write_text(json.dumps(FEATURES, indent=2))
     bb = solid.BoundingBox()
-    print(f"size {bb.xlen:.1f} x {bb.ylen:.1f} x {bb.zlen:.1f} mm, volume {solid.Volume():.0f}")
+    print(
+        f"size {bb.xlen:.1f} x {bb.ylen:.1f} x {bb.zlen:.1f} mm, volume {solid.Volume():.0f}"
+    )
     print(len(FEATURES), "features")
 
 
