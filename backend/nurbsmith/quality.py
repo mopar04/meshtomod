@@ -21,7 +21,10 @@ NOISE_DENSIFY_DIVISIONS = 100
 NOISE_DENSE_VERTICES = 2000
 NOISE_OUTLIER_EDGES = 4.0
 DEVIATION_DIVISIONS = 50
-DEVIATION_CHUNK = 20_000
+DEVIATION_CHUNK = 5_000
+# Points further than this many tolerances (plus a model edge) from every model vertex get an
+# approximate distance.
+FAR_TOLS = 3
 # A fit tolerance must cover this many sigma of scan noise to separate noise from features.
 NOISE_SIGMAS = 3.5
 
@@ -169,11 +172,15 @@ def deviations(mesh: trimesh.Trimesh, shape: cq.Shape, tol: float) -> np.ndarray
     verts, tris = trimesh.remesh.subdivide_to_size(verts, np.array(tris), max_edge)
     model = trimesh.Trimesh(verts, tris, process=False)
     points = np.asarray(mesh.vertices)
-    chunks = [
-        trimesh.proximity.closest_point(model, points[i : i + DEVIATION_CHUNK])[1]
-        for i in range(0, len(points), DEVIATION_CHUNK)
-    ]
-    return np.concatenate(chunks)
+    # The exact search gets slow and memory hungry for points far from the model (a part of
+    # the scan it does not cover), so those get the distance to the nearest model vertex, an
+    # upper bound that is already well out of tolerance.
+    dist, _ = cKDTree(model.vertices).query(points)
+    near = np.flatnonzero(dist <= FAR_TOLS * tol + max_edge)
+    for i in range(0, len(near), DEVIATION_CHUNK):
+        idx = near[i : i + DEVIATION_CHUNK]
+        dist[idx] = trimesh.proximity.closest_point(model, points[idx])[1]
+    return dist
 
 
 def fit_score(mesh: trimesh.Trimesh, dist: np.ndarray, level: ToleranceLevel) -> FitScore:

@@ -29,6 +29,13 @@ def cylinder(radius: float = 10.0, height: float = 30.0, sections: int = 96) -> 
     return trimesh.creation.cylinder(radius=radius, height=height, sections=sections)
 
 
+def ball(radius: float = 15.0, squash: float = 0.6) -> trimesh.Trimesh:
+    """A squashed sphere: curved everywhere, and not a cylinder anywhere."""
+    mesh = trimesh.creation.icosphere(subdivisions=4, radius=radius)
+    mesh.apply_scale([1.0, 1.0, squash])
+    return mesh
+
+
 def plate_with_hole(
     size=(60.0, 40.0, 8.0), hole_radius: float = 6.0, sections: int = 96
 ) -> trimesh.Trimesh:

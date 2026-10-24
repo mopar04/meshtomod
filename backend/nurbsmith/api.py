@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import tempfile
 import uuid
@@ -20,6 +21,8 @@ from .mesh_io import SUPPORTED_FORMATS, MeshLoadError, load_mesh, summarize
 from .quality import deviation_colors
 from .step_io import write_step
 from .tolerance import DEFAULT_LEVEL, LEVELS, get_level
+
+log = logging.getLogger(__name__)
 
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 MAX_STORED_RESULTS = 50
@@ -90,7 +93,8 @@ async def convert_mesh(
         result = await run_in_threadpool(convert, mesh, tol)
     except UnsupportedGeometry as exc:
         raise HTTPException(422, str(exc)) from exc
-    except ValueError as exc:  # OpenCASCADE construction failures surface as ValueError
+    except Exception as exc:  # OpenCASCADE failures surface as assorted exception types
+        log.exception("Conversion failed for %s at %s", file.filename, level)
         raise HTTPException(
             422, "Could not rebuild a clean solid from this scan. Try a looser accuracy level."
         ) from exc

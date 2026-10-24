@@ -29,6 +29,7 @@ export interface ConversionReport {
   scan_quality: {
     noise_mm: number;
     open_edges: number;
+    loose_pieces: number;
     suggested_level: string;
     warning: string | null;
   };
@@ -38,6 +39,18 @@ export interface ConversionReport {
     p95_mm: number;
     max_mm: number;
   };
+  features: Feature[];
+  notes: string[];
+}
+
+export interface Feature {
+  type: "hole" | "boss" | "fillet" | "body";
+  diameter_mm?: number;
+  radius_mm?: number;
+  depth_mm?: number;
+  height_mm?: number;
+  through?: boolean;
+  standard?: string;
 }
 
 export interface Conversion {

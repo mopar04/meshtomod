@@ -12,7 +12,7 @@ import trimesh
 from .brep import UnsupportedGeometry, check_supported, merge_coplanar, rebuild_solid, snap_planes
 from .cells import cell_solid
 from .cylinders import consolidate, find_cylinders, planes_around, shared_lengths
-from .features import Feature, apply_features, plan_features
+from .features import Feature, apply_features, cylinder_between, plan_features
 from .quality import FitScore, ScanQuality, deviations, fit_score, scan_quality
 from .segment import Geo, Region, segment_planes
 from .step_io import face_type_counts
@@ -22,15 +22,19 @@ __all__ = ["ConversionResult", "UnsupportedGeometry", "convert", "repair"]
 
 MIN_FEATURE_TOLS = 5.0
 LOOSE_PIECE_SHARE = 0.1
+# Below this share of the scan within the working tolerance, the model is not the part.
+MIN_PLAUSIBLE_FIT_PCT = 90.0
 # Dense scans are decimated to about this many triangles before segmentation.
 WORKING_FACES = 60_000
 MIN_WORKING_FACES = 5_000
 COARSE_DIVISIONS = 150
+DECIMATION_AGGRESSION = 4
+DECIMATION_PASSES = 6
 
 
 @dataclass
 class ConversionResult:
-    solid: cq.Solid
+    solid: cq.Shape  # one solid, or a compound when the scan has separate bodies
     scan_mesh: trimesh.Trimesh
     """The repaired input; deviation_mm is indexed by its vertices."""
     regions: list[Region]
@@ -102,7 +106,15 @@ def working_mesh(mesh: trimesh.Trimesh, max_faces: int = WORKING_FACES) -> trime
         return trimesh.Trimesh(verts, faces)
     if len(mesh.faces) <= max_faces:
         return mesh
-    verts, faces = fast_simplification.simplify(mesh.vertices, mesh.faces, target_count=max_faces)
+    # Gentle passes: at the library's default aggressiveness a few collapses cut across
+    # corners and leave big triangles millimetres off the surface.
+    verts, faces = mesh.vertices, mesh.faces
+    for _ in range(DECIMATION_PASSES):
+        verts, faces = fast_simplification.simplify(
+            verts, faces, target_count=max_faces, agg=DECIMATION_AGGRESSION
+        )
+        if len(faces) <= 1.05 * max_faces:
+            break
     # A face and its mirror image: a collapsed sliver. Drop both.
     _, inverse, counts = np.unique(
         np.sort(faces, axis=1), axis=0, return_inverse=True, return_counts=True
@@ -166,10 +178,16 @@ def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
     snap_planes(work, planes, working)
     planes = merge_coplanar(work, planes, working)
     planes, patches, labels = consolidate(work, planes, patches, working)
-    note = check_supported(planes, working)
-
     features, caps, skipped = plan_features(
         work, planes, patches, shared_lengths(work, labels), working
+    )
+    modelled = {f.patch for f in features}
+    patch_area = {p.id: float(work.area_faces[p.faces].sum()) for p in patches}
+    note = check_supported(
+        planes,
+        working,
+        unmodelled=sum(a for pid, a in patch_area.items() if pid not in modelled),
+        curved_total=sum(patch_area.values()),
     )
     base_planes = [r for r in planes if r.id not in caps]
     other_side = {
@@ -181,13 +199,24 @@ def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
     def through(rid: int, nb: int) -> int | None:
         return other_side.get(nb, {}).get(rid)
 
+    body = next((f for f in features if f.kind == "body"), None)
     try:
-        base = rebuild_solid(work, base_planes, working.fit_tolerance_mm, labels, through)
+        if body:
+            base = cylinder_between(body.start, body.end, body.radius)
+        else:
+            base = rebuild_solid(work, base_planes, working.fit_tolerance_mm, labels, through)
     except (UnsupportedGeometry, ValueError):
         # Gaps, warps or ragged edges kept the traced faces from closing; build from blocks.
         base = cell_solid(work, base_planes, working.fit_tolerance_mm, working.min_feature_mm)
     solid, failed = apply_features(base, features, planes)
     dist = deviations(mesh, solid, working.fit_tolerance_mm)
+    # Never hand back a model that plainly is not the part.
+    plausible = fit_score(mesh, dist, working).within_tolerance_pct
+    if plausible < MIN_PLAUSIBLE_FIT_PCT:
+        raise UnsupportedGeometry(
+            f"The rebuilt model only matches {plausible:.0f}% of the scan, so it was not "
+            "returned. This part has shapes this version can't model yet."
+        )
     return ConversionResult(
         solid,
         mesh,

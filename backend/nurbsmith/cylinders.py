@@ -41,6 +41,11 @@ COVERAGE_SECTORS = 36
 FIT_PERCENTILE = 99
 MAX_FIT_POINTS = 1500
 GROW_ROUNDS = 4
+# Fewest points a cylinder is fitted to or accepted from.
+MIN_FIT_POINTS = 12
+# The normals must turn through between these shares of the arc the points span.
+NORMAL_TURN_SHARE = 0.5
+NORMAL_TURN_MAX = 2.0
 
 
 @dataclass
@@ -98,6 +103,8 @@ def fit_cylinder(points: np.ndarray, start: Cylinder) -> Cylinder:
         radial = rr - np.outer(rr @ d, d)
         return np.linalg.norm(radial, axis=1) - radius
 
+    if len(points) < MIN_FIT_POINTS:
+        return start
     sol = least_squares(residuals, [0.0, 0.0, 0.0, 0.0, start.radius], method="lm")
     a, b, x, y, radius = sol.x
     d = axis + a * u + b * v
@@ -109,6 +116,8 @@ def fit_circle_on_axis(points: np.ndarray, axis: np.ndarray, start: Cylinder) ->
     u, v = _basis(axis)
     if len(points) > MAX_FIT_POINTS:
         points = points[np.random.default_rng(0).choice(len(points), MAX_FIT_POINTS, False)]
+    if len(points) < MIN_FIT_POINTS:
+        return start
     xy = np.stack([points @ u, points @ v], axis=1)
     c0 = np.array([start.point @ u, start.point @ v])
 
@@ -210,7 +219,9 @@ def find_cylinders(
         pts = points(faces)
         if np.percentile(np.abs(fit_plane(pts).distance(pts)), FIT_PERCENTILE) <= tol:
             continue
-        patch = _describe(mesh, len(patches), faces, cyl)
+        if len(pts) < MIN_FIT_POINTS:
+            continue
+        patch = _describe(mesh, len(patches), faces, cyl, normals)
         if patch is None:
             continue
         patch_of[faces] = patch.id
@@ -225,7 +236,9 @@ def _adjacency_matrix(mesh: Geo) -> csr_matrix:
     return csr_matrix((data, (a, b)), shape=(n, n))
 
 
-def _describe(mesh: Geo, pid: int, faces: np.ndarray, cyl: Cylinder) -> CurvedPatch | None:
+def _describe(
+    mesh: Geo, pid: int, faces: np.ndarray, cyl: Cylinder, normals: np.ndarray | None = None
+) -> CurvedPatch | None:
     verts = np.unique(mesh.faces[faces])
     pts = mesh.vertices[verts]
     centres = mesh.vertices[mesh.faces[faces]].mean(axis=1)
@@ -239,6 +252,17 @@ def _describe(mesh: Geo, pid: int, faces: np.ndarray, cyl: Cylinder) -> CurvedPa
     coverage = len(sectors) / COVERAGE_SECTORS
     # A pair of strips spanning almost no angle is just two planes meeting at a shallow crease.
     if coverage < 2 / COVERAGE_SECTORS:
+        return None
+    # On a real cylinder the surface turns as far as the arc does. A wide, gentle "cylinder"
+    # fitted to a few big flat triangles spans an arc while its normals barely turn.
+    n = normals[faces] if normals is not None else mesh.face_normals[faces]
+    turn = np.arctan2(n @ v, n @ u)
+    turned = np.unique(((turn + np.pi) / (2 * np.pi) * COVERAGE_SECTORS).astype(int))
+    # The other way round, normals turning far more than the arc, is a corner with flat sides
+    # (two faces and the fillet between them) passing for one wide, gentle cylinder.
+    # Only with smoothed normals: raw ones on a noisy scan point every which way.
+    most = NORMAL_TURN_MAX * len(sectors) + 2 if normals is not None else COVERAGE_SECTORS
+    if not NORMAL_TURN_SHARE * len(sectors) <= len(turned) <= most:
         return None
 
     t = rel @ cyl.axis

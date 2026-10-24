@@ -28,6 +28,9 @@ from .tolerance import ToleranceLevel
 MIN_CREASE_DEG = 20.0
 # A region whose plane-fit RMS exceeds this share of the tolerance is curved.
 CURVED_TOL_RATIO = 0.5
+# A face counts as flat but warped while its RMS bow stays under this share of its size
+# (square root of its area): about 0.5 mm over a 100 mm face.
+WARP_SHARE = 0.005
 # Beyond this share of the surface, curved panels are too much to approximate with planes.
 FREEFORM_SHARE = 0.15
 
@@ -141,14 +144,20 @@ def merge_coplanar(
     return merged
 
 
-def check_supported(regions: list[Region], level: ToleranceLevel) -> str | None:
+def check_supported(
+    regions: list[Region], level: ToleranceLevel, unmodelled: float = 0.0, curved_total: float = 0.0
+) -> str | None:
     """Refuse parts that are mostly freeform, rather than return a faceted approximation.
 
     Holes, bosses and fillets are already out of the way by now. Whatever is left that meets a
     neighbour at a shallow angle, or bows well beyond the tolerance, is part of a curved panel.
     A little of that (a rounded rim, a blended corner) is approximated with flat faces and
     noted; a lot of it is a sculpted part that needs freeform surfaces. A face that is only
-    warped a little stays one plane and just costs some fit score.
+    warped a little for its size (bent sheet metal, a moulding that sagged) stays one plane and
+    just costs some fit score.
+
+    unmodelled is the area of curved patches that became no feature; curved_total is the area
+    of all curved patches, so the share is of the whole surface.
     """
     by_id = {r.id: r for r in regions}
     cos_min = np.cos(np.radians(MIN_CREASE_DEG))
@@ -159,12 +168,12 @@ def check_supported(regions: list[Region], level: ToleranceLevel) -> str | None:
             if nb in by_id and cos_parallel > r.plane.normal @ by_id[nb].plane.normal > cos_min:
                 # The smaller of the two is the facet; the bigger is usually a real face.
                 curved.add(min((r, by_id[nb]), key=lambda x: x.area).id)
-        if r.rms_mm > CURVED_TOL_RATIO * level.fit_tolerance_mm:
+        if r.rms_mm > max(CURVED_TOL_RATIO * level.fit_tolerance_mm, WARP_SHARE * np.sqrt(r.area)):
             curved.add(r.id)
-    if not curved:
+    if not curved and not unmodelled:
         return None
-    area = sum(by_id[i].area for i in curved)
-    total = sum(r.area for r in regions)
+    area = sum(by_id[i].area for i in curved) + unmodelled
+    total = sum(r.area for r in regions) + curved_total
     if area > FREEFORM_SHARE * total:
         raise UnsupportedGeometry(
             "This part is largely made of curved surfaces other than holes, round bosses and "

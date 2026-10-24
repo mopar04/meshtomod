@@ -22,9 +22,13 @@ source of truth: read and update the docs below so any session can pick up the w
   - `tolerance.py` accuracy level presets
   - `step_io.py` STEP read/write and face-type checks (CadQuery / OpenCASCADE)
   - `segment.py` region growing into planar regions, noise filter merges
-  - `brep.py` plane snapping, curved-part check, solid rebuild from plane intersections
+  - `brep.py` plane snapping, freeform check, exact solid rebuild from plane intersections
+  - `cylinders.py` cylinder fitting: strips of planes grown into hole/boss/fillet patches
+  - `features.py` patches to CAD features (hole, boss, fillet, round body), standard sizes
+  - `cells.py` fallback solid from plane-cut blocks, for scans with gaps and warps
   - `quality.py` scan noise estimate, fit score, deviation colours
-  - `convert.py` the pipeline: repair, quality, segment, snap, rebuild, score
+  - `convert.py` the pipeline: repair, quality, decimate, segment, cylinders, snap, rebuild,
+    features, score
   - `fixtures.py` synthetic meshes with known answers, plus scanner-like noise
   - `api.py` HTTP API
 - `backend/tests/`: pytest suite

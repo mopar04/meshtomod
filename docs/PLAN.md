@@ -68,8 +68,11 @@ hole pattern. Each step goes into the feature recipe so it stays editable in CAD
 - **M0 Scaffold**: repo, API upload, viewer, CI, synthetic fixtures. (done)
 - **M1 Planar parts**: segmentation, plane fitting and snapping, stitching, STEP export,
   confidence metrics, units prompt, deviation view. (done)
-- **M2 Mechanical features**: cylinders, cones, holes with standard sizes, fillets, chamfers,
-  tolerance levels wired through, deviation heat map.
+- **M2 Mechanical features**: cylinders, holes with standard sizes, bosses, fillets, round
+  bodies, block-based fallback solid for scans with gaps. (done; cones and chamfer detection
+  moved to M3)
+- **M2.5 Real-scan readiness**: thin walls patched from measured thickness, open ends closed,
+  front/back scans of one part merged, background jobs for big scans.
 - **M3 Freeform + sink/extrude**: B-spline patches, sink/extrude UI, feature recipe.
   **Thicken skin** for one-sided scans: wall thickness (default 3 mm), direction (in, out,
   centred), and edge finish (square, chamfer, or full round = thickness / 2). The ragged scan

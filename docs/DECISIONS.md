@@ -2,6 +2,27 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-24 (M2)
+- **Features are CAD operations on a flat base solid.** The base is built from planes only;
+  bosses are fused, fillets applied with OpenCASCADE's fillet, holes cut. A feature that
+  fails is left out with a note, never a failed part. This is also the M4 replay order.
+- **Standard sizes snap only within half the tolerance.** Otherwise the measured size is kept,
+  rounded. A hole is never moved to a standard size the scan doesn't support.
+- **Cylinders come from strip pairs, not curvature.** Two neighbouring planar strips give a
+  seed cylinder; it is grown over triangles and refitted. A patch must not fit a plane, and
+  its normals must turn about as far as its arc (0.5× to 2×).
+- **Freeform share is checked after features are planned.** Curved patches that become no
+  feature count as freeform with curved flat faces; over 15% of the surface is refused.
+- **Warp is relative to face size.** A face counts as curved only above both 0.5× tolerance
+  and 0.5% of its size (RMS). Real flat parts are warped; refusing them helped nobody.
+- **Block-based fallback solid** (`cells.py`) when the exact rebuild cannot close, and every
+  sizeable body is kept (an assembly scan can fall apart where a joining piece isn't
+  modelled). A result under 90% within the working tolerance is refused, not returned.
+- **Decimate gently.** fast-simplification at aggression 4 in repeated passes; the default
+  made triangles that cut across corners by millimetres.
+- **Next milestone is real-scan readiness** (thin walls, open ends, front/back merge) before
+  M3, because Zac's real scans hit those first.
+
 ## 2026-10-23 (M1)
 - **Open source under AGPL-3.0, with a donate link, no commercial plans** (Zac). This matches
   CNC Kitchen's tools and lets us reuse ScanRuler code with credit. Set the donate link with

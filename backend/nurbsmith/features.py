@@ -68,7 +68,8 @@ STANDARD_HOLES: list[tuple[float, str]] = sorted(
 @dataclass
 class Feature:
     kind: str
-    """"hole", "boss", "fillet", or "sharp" for a fillet the accuracy level leaves out."""
+    """"hole", "boss", "fillet", "body" for a round part's outside, or "sharp" for a fillet
+    the accuracy level leaves out."""
     patch: int
     radius: float
     axis: np.ndarray
@@ -86,6 +87,9 @@ class Feature:
         out: dict = {"type": self.kind}
         if self.kind == "fillet":
             out["radius_mm"] = round(self.radius, 3)
+        elif self.kind == "body":
+            out["diameter_mm"] = round(2 * self.radius, 3)
+            out["height_mm"] = round(float(np.linalg.norm(self.end - self.start)), 3)
         else:
             out["diameter_mm"] = round(2 * self.radius, 3)
             length = float(np.linalg.norm(self.end - self.start))
@@ -131,6 +135,19 @@ def plan_features(
             cap_ends = [r for r in ends if r.neighbours <= {patch.id}]
             open_ends = [r for r in ends if r not in cap_ends]
             kind = "boss" if patch.convex else "hole"
+            # A round part (a puck, a tube, a turned spacer): the cylinder is the outside of
+            # the whole part and every flat face is an end of it.
+            if (
+                patch.convex
+                and len(ends) >= 2
+                and all(abs(r.plane.normal @ cyl.axis) >= cos_end for r in planes)
+            ):
+                hits = [_axis_hit(cyl, r.plane) for r in ends]
+                t = [(h - cyl.point) @ cyl.axis for h in hits]
+                radius, label = _snap_radius(cyl.radius, tol, "boss")
+                start, end = hits[int(np.argmin(t))], hits[int(np.argmax(t))]
+                features.append(Feature("body", patch.id, radius, cyl.axis, start, end))
+                continue
             if kind == "boss" and (len(cap_ends) != 1 or len(open_ends) != 1):
                 skipped.append(f"a round boss \u00d8{2 * cyl.radius:.1f} mm without a flat top")
                 continue
@@ -196,14 +213,15 @@ def plan_features(
 
 
 def apply_features(
-    base: cq.Solid, features: list[Feature], planes: list[Region]
-) -> tuple[cq.Solid, str | None]:
+    base: cq.Shape, features: list[Feature], planes: list[Region]
+) -> tuple[cq.Shape, str | None]:
     """Base solid, then bosses, then fillets, then holes: the order a designer would use.
 
     A feature that OpenCASCADE cannot apply (a fillet too big for its edge, say) is left out
     and noted, rather than failing the whole part."""
     by_id = {r.id: r for r in planes}
     solid: cq.Shape = base
+    bodies = len(base.Solids())
     failed: list[str] = []
 
     def attempt(f: Feature, op) -> None:
@@ -211,8 +229,9 @@ def apply_features(
         try:
             result = op(solid)
             parts = result.Solids()
-            if len(parts) == 1 and parts[0].isValid():
-                solid = parts[0]
+            # A feature must not split a body, merge bodies or break one.
+            if len(parts) == bodies and all(p.isValid() for p in parts):
+                solid = parts[0] if bodies == 1 else cq.Compound.makeCompound(parts)
                 return
         except Exception:  # OpenCASCADE raises a variety of errors here
             pass
@@ -220,7 +239,7 @@ def apply_features(
 
     for f in features:
         if f.kind == "boss":
-            rod = _rod(f.start - OVERSHOOT_MM * _unit(f.end - f.start), f.end, f.radius)
+            rod = cylinder_between(f.start - OVERSHOOT_MM * _unit(f.end - f.start), f.end, f.radius)
             attempt(f, lambda s, rod=rod: s.fuse(rod).clean())
     for f in features:
         if f.kind == "fillet":
@@ -230,7 +249,7 @@ def apply_features(
         if f.kind == "hole":
             d = _unit(f.end - f.start)
             start = f.start - OVERSHOOT_MM * d if f.through else f.start
-            rod = _rod(start, f.end + OVERSHOOT_MM * d, f.radius)
+            rod = cylinder_between(start, f.end + OVERSHOOT_MM * d, f.radius)
             attempt(f, lambda s, rod=rod: s.cut(rod).clean())
     note = None
     if failed:
@@ -256,7 +275,7 @@ def _unit(v: np.ndarray) -> np.ndarray:
     return v / np.linalg.norm(v)
 
 
-def _rod(start: np.ndarray, end: np.ndarray, radius: float) -> cq.Solid:
+def cylinder_between(start: np.ndarray, end: np.ndarray, radius: float) -> cq.Solid:
     length = float(np.linalg.norm(end - start))
     return cq.Solid.makeCylinder(
         radius, length, cq.Vector(*start), cq.Vector(*((end - start) / length))

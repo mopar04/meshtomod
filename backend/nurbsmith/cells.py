@@ -17,6 +17,7 @@ from __future__ import annotations
 import cadquery as cq
 import numpy as np
 import trimesh
+from OCP.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
 from scipy.spatial import ConvexHull, QhullError
 
 from .brep import UnsupportedGeometry, _sew_solid
@@ -26,9 +27,18 @@ from .segment import Geo, Region
 SAMPLES_PER_CELL = 64
 # A plane cuts a block only if its region comes within this many tolerances of the block.
 REACH_TOLS = 3.0
+# Points per closest-point query, and the most blocks worth building.
+SAMPLE_CHUNK = 20_000
+MAX_CELLS = 20_000
+# Separate bodies smaller than this share of the biggest are crumbs and are dropped.
+MIN_BODY_SHARE = 0.05
+# Blocks fused per round.
+FUSE_BATCH = 16
 
 
-def cell_solid(mesh: Geo, planes: list[Region], tol: float, min_feature: float) -> cq.Solid:
+def cell_solid(
+    mesh: Geo, planes: list[Region], tol: float, min_feature: float
+) -> cq.Solid | cq.Compound:
     pts = mesh.vertices
     margin = 0.05 * float(np.linalg.norm(np.ptp(pts, axis=0))) + tol
     lo, hi = pts.min(axis=0) - margin, pts.max(axis=0) + margin
@@ -56,16 +66,22 @@ def cell_solid(mesh: Geo, planes: list[Region], tol: float, min_feature: float) 
                 if piece is not None:
                     out.append(piece)
         cells = out
+        if len(cells) > MAX_CELLS:
+            raise UnsupportedGeometry("This part has too many separate faces to rebuild yet.")
 
     inside = _inside_cells(mesh, cells, rng)
     if not inside:
         raise UnsupportedGeometry("Could not find the inside of the scan.")
     solids = [s for s in (_hull_solid(c) for c in inside) if s is not None]
-    fused = (solids[0].fuse(*solids[1:]) if len(solids) > 1 else solids[0]).clean()
+    fused = _fuse_all(solids)
     parts = fused.Solids()
     if not parts:
         raise UnsupportedGeometry("Rebuilt solid is not valid.")
-    solid = max(parts, key=lambda s: s.Volume())
+    # A scan of an assembly can come apart where a joining piece is not modelled (a threaded
+    # post between two plates); keep each sizeable body rather than only the biggest.
+    biggest = max(s.Volume() for s in parts)
+    bodies = [s for s in parts if s.Volume() >= MIN_BODY_SHARE * biggest]
+    solid = bodies[0] if len(bodies) == 1 else cq.Compound.makeCompound(bodies)
     if not solid.isValid():
         raise UnsupportedGeometry("Rebuilt solid is not valid.")
     return solid
@@ -128,9 +144,13 @@ def _inside_cells(mesh: Geo, cells: list[np.ndarray], rng: np.random.Generator) 
         samples.append(cand)
         owner.append(np.full(len(cand), i))
     samples_arr, owner_arr = np.concatenate(samples), np.concatenate(owner)
-    closest, _, tri = trimesh.proximity.closest_point(surface, samples_arr)
-    # Inside if the nearest bit of surface faces away from the point.
-    side = ((samples_arr - closest) * mesh.face_normals[tri]).sum(axis=1) < 0
+    # In chunks: closest-point queries on a dense scan take a lot of memory per point.
+    side = np.zeros(len(samples_arr), dtype=bool)
+    for at in range(0, len(samples_arr), SAMPLE_CHUNK):
+        chunk = samples_arr[at : at + SAMPLE_CHUNK]
+        closest, _, tri = trimesh.proximity.closest_point(surface, chunk)
+        # Inside if the nearest bit of surface faces away from the point.
+        side[at : at + SAMPLE_CHUNK] = ((chunk - closest) * mesh.face_normals[tri]).sum(axis=1) < 0
     share = np.bincount(owner_arr, weights=side, minlength=len(cells)) / np.bincount(
         owner_arr, minlength=len(cells)
     )
@@ -154,3 +174,26 @@ def _hull_solid(cell: np.ndarray) -> cq.Solid | None:
         return _sew_solid(faces, 1e-6 * size)
     except UnsupportedGeometry:
         return None  # a sliver too thin to matter
+
+
+def _fuse_all(solids: list[cq.Solid]) -> cq.Shape:
+    """Fuse the blocks a batch at a time, merging faces after each round. One big fuse of
+    thousands of blocks takes many gigabytes; the blocks only touch, never overlap, so the
+    glue option applies and small rounds stay light."""
+    shapes: list[cq.Shape] = list(solids)
+    while len(shapes) > 1:
+        shapes = [
+            _unify(group[0].fuse(*group[1:], glue=True)) if len(group) > 1 else group[0]
+            for group in (shapes[i : i + FUSE_BATCH] for i in range(0, len(shapes), FUSE_BATCH))
+        ]
+    return _unify(shapes[0])
+
+
+def _unify(shape: cq.Shape) -> cq.Shape:
+    """Merge the coplanar pieces the blocks leave behind into whole faces."""
+    size = shape.BoundingBox().DiagonalLength
+    unify = ShapeUpgrade_UnifySameDomain(shape.wrapped, True, True, True)
+    unify.SetLinearTolerance(1e-5 * size)
+    unify.SetAngularTolerance(1e-5)
+    unify.Build()
+    return cq.Shape.cast(unify.Shape())
