@@ -67,10 +67,20 @@ def test_clean_scan_has_no_warning():
     assert result.fit.within_tolerance_pct > 99
 
 
-@pytest.mark.parametrize("make", [fx.cylinder, fx.plate_with_hole])
-def test_curved_parts_are_refused_not_faceted(make):
+def test_freeform_parts_are_refused_not_faceted():
     with pytest.raises(UnsupportedGeometry, match="curved"):
-        convert(make(), LEVELS["functional"])
+        convert(fx.ball(), LEVELS["functional"])
+
+
+def test_round_parts_become_cylinders():
+    result = convert(fx.cylinder(), LEVELS["functional"])
+    assert face_type_counts(result.solid) == {"PLANE": 2, "CYLINDER": 1}
+    (body,) = result.report()["features"]
+    assert body["type"] == "body" and body["diameter_mm"] == pytest.approx(20.0, abs=0.1)
+
+    result = convert(fx.plate_with_hole(), LEVELS["functional"])
+    assert face_type_counts(result.solid) == {"PLANE": 6, "CYLINDER": 1}
+    assert [f["type"] for f in result.report()["features"]] == ["hole"]
 
 
 def test_step_export_of_converted_part(tmp_path):

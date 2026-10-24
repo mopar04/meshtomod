@@ -1,39 +1,61 @@
 # Status
 
-_Last updated: 2026-10-23_
+_Last updated: 2026-10-24_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
-- **M1 flat-faced parts:**
-  - Pipeline: repair, segmentation (`segment.py`), snapping and solid rebuild (`brep.py`),
-    orchestration (`convert.py`), confidence metrics (`quality.py`).
-  - API: `POST /api/convert` (file, level, units) and downloads of the STEP, the model STL and
-    a deviation-coloured PLY.
-  - Viewer: units prompt for STL/OBJ/PLY, Convert button, confidence card with "use suggested
-    level", Scan / Model / Overlay / Deviation view bar with legend, Download STEP, and a donate
-    link once `VITE_DONATE_URL` is set.
-  - Tests: box, L-bracket, stepped block and window frame, each rotated arbitrarily, at noise
-    0.02 to 0.3 mm and all three levels. They recover the exact face count, with a mean surface
-    error well under the noise. Curved parts are refused with a clear message.
-- AGPL-3.0 license, NURBSmith naming, UI reference notes.
+- **M1 flat-faced parts:** segmentation, plane snapping, exact solid rebuild, confidence
+  metrics, deviation view, STEP download. AGPL-3.0, NURBSmith naming, UI reference notes.
+- **M2 mechanical features:**
+  - Cylinder finding (`cylinders.py`): pairs of planar strips seed a cylinder fit, which is
+    grown over triangles and refitted. Checks reject gentle curves that fit a plane, wide
+    "cylinders" fitted to a few big flat triangles, and corners passing as one gentle cylinder.
+  - Features (`features.py`): through and blind holes, bosses, fillets, and round bodies. Hole
+    sizes snap to standard metric clearance / close fit / tap drill and inch sizes, only
+    within half the tolerance. Fillets below the level's smallest radius are made sharp.
+  - Base solid: the exact plane-intersection rebuild, with a fallback (`cells.py`) that cuts a
+    block with the fitted planes near their regions and keeps the inside blocks. The fallback
+    survives gaps, warps and ragged rims, and keeps each separate body of an assembly scan.
+  - Real scans: loose floating pieces are dropped and counted. Dense scans are decimated
+    gently (several low-aggression passes; the default one cut corners). Noise is estimated
+    on a densified copy, so clean coarse meshes don't read as noisy. Faces warped a little for
+    their size (bent sheet metal) stay flat. Deviation scoring is chunked and approximates
+    far-off points, and the block fuse runs in rounds (10 GB down to 3 GB on a 2.2M-face scan).
+  - Guards: refuse a result that matches under 90% of the scan at the working tolerance, and
+    refuse parts where over 15% of the surface is freeform (curved but not a feature).
+  - API returns `features` and `notes`; the viewer lists features ("4× Hole Ø6.6 mm (M6
+    clearance), through") and notes.
+  - Tests: five CAD-built parts (holed plate, filleted block, boss plate, blind hole block,
+    bracket) at 0.05 mm noise recover exact face types, feature sizes and volume.
+
+## Real scans tried (Zac's, in `Developer/Nurbsmith/Test Scans`)
+- Scale checks out: tape roll 92.5/76.8/48.5 vs 93/76/48.5; cap 102.2–102.8 vs 102.
+- Box with floating bits: bits dropped; Rough converts (98% within 1 mm); Functional is held
+  back by faces warped up to 2 mm.
+- RC stand (two bent plates on a threaded post), full scan: both plates with holes and
+  fillets, 82% within 0.3 mm, so still refused. The post and the round feet are not modelled.
+- Bin (thin walls), tape roll (open end, rough edges), cap (front and back as separate scans),
+  smoke detector and bottle (freeform): not converting yet.
 
 ## In progress
 - Nothing.
 
-## Next (M2: mechanical features)
-- Cylinder, cone, sphere and torus fitting; classify regions by curvature.
-- Holes snapped to standard drill and tap sizes (mm and inch).
-- Fillets and chamfers as blend surfaces between fitted faces.
-- Real-scan test corpus. We need sample scans from Zac.
-- Adaptive decimation for large scans (1M+ triangles) and a background job queue.
+## Next (M2.5: real-scan readiness, agreed with Zac)
+- Thin walls: detect wall pairs, measure thickness, patch missing wall areas from it (bin).
+- Open and partial scans: close an open end with a plane; trim ragged rims.
+- Merge front and back scans of one part (cap) before converting.
+- Fewer spurious planes on warped real faces (RC stand gives about 1,000 faces).
+- Background jobs: a 2M-face scan takes 5 to 10 minutes.
 
 ## Known limits
-- Only flat-faced parts convert. Anything curved is refused.
-- Conversion runs inside the request, which is fine for test parts but not for big scans.
-- Results are kept in a temp folder, last 50 only.
+- Noise matrix (5 test parts × noise 0 / 0.02 / 0.1 / 0.3 mm × 3 levels): correct up to 0.1 mm
+  noise, with a few misses (the bracket at 0.1 mm Functional keeps 1 of 3 cylinders; the
+  holed plate at 0.02 mm Rough finds 3 of 4 holes). At 0.3 mm noise results are poor; the
+  guard catches some but not all. Zac's laser scans are 0.01 to 0.03 mm.
+- No cones, spheres, tori or freeform yet; chamfers come out as plain planes.
+- Conversion runs inside the request. Results are kept in a temp folder, last 50 only.
 
 ## Open questions for Zac
-- Which scanner and file format you usually get, and a couple of sample scans.
 - Default units: mm or inches.
 - Local-only at first, or public hosting from day one.
 - Donate link URL.

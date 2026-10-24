@@ -53,7 +53,7 @@ def test_convert_scales_inches():
 
 
 def test_convert_curved_part_is_a_clear_422():
-    data = fixtures.cylinder().export(file_type="stl")
+    data = fixtures.ball().export(file_type="stl")
     res = client.post("/api/convert", files={"file": ("c.stl", data)})
     assert res.status_code == 422
     assert "curved" in res.json()["detail"]

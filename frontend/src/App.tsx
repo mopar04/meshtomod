@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type * as THREE from "three";
 import {
+  type Feature,
   convertMesh,
   fetchBuffer,
   getTolerances,
@@ -210,6 +211,24 @@ export default function App() {
               <dt>Size</dt>
               <dd>{report.size_mm.map((v) => v.toFixed(1)).join(" × ")} mm</dd>
             </dl>
+            {report.features.length > 0 && (
+              <>
+                <h2>Features</h2>
+                <ul className="features">
+                  {groupFeatures(report.features).map(([text, count]) => (
+                    <li key={text}>
+                      {count > 1 && <span className="count">{count}×</span>}
+                      {text}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {report.notes.map((n) => (
+              <p className="note" key={n}>
+                {n}
+              </p>
+            ))}
             <a className="button primary wide" href={result!.downloads.step} download>
               Download STEP
             </a>
@@ -280,4 +299,24 @@ export default function App() {
       )}
     </div>
   );
+}
+
+function describe(f: Feature): string {
+  const mm = (v: number) => `${+v.toFixed(2)} mm`;
+  if (f.type === "fillet") return `Fillet R${mm(f.radius_mm!)}`;
+  if (f.type === "body") return `Round body \u00d8${mm(f.diameter_mm!)}, ${mm(f.height_mm!)} tall`;
+  if (f.type === "boss") return `Boss \u00d8${mm(f.diameter_mm!)}, ${mm(f.height_mm!)} tall`;
+  const depth = f.through ? "through" : `${mm(f.depth_mm!)} deep`;
+  const std = f.standard ? ` (${f.standard})` : "";
+  return `Hole \u00d8${mm(f.diameter_mm!)}${std}, ${depth}`;
+}
+
+/** Identical features listed once with a count, e.g. "4× Hole Ø6.6 mm (M6 clearance), through". */
+function groupFeatures(features: Feature[]): [string, number][] {
+  const counts = new Map<string, number>();
+  for (const f of features) {
+    const text = describe(f);
+    counts.set(text, (counts.get(text) ?? 0) + 1);
+  }
+  return [...counts.entries()];
 }

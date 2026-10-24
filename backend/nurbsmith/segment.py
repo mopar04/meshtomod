@@ -97,7 +97,7 @@ def segment_planes(mesh: trimesh.Trimesh, level: ToleranceLevel) -> list[Region]
     labels = _grow_regions(mesh, level)
     labels = _merge_small_regions(mesh, labels, level)
     labels = _merge_similar_regions(mesh, labels, level)
-    labels = _merge_islands(mesh, labels)
+    labels = _merge_islands(mesh, labels, level)
     return _build_regions(mesh, labels)
 
 
@@ -108,7 +108,7 @@ def face_labels(regions: list[Region], face_count: int) -> np.ndarray:
     return labels
 
 
-def _face_neighbours(mesh: Geo) -> list[list[int]]:
+def face_neighbours(mesh: Geo) -> list[list[int]]:
     nbrs: list[list[int]] = [[] for _ in range(len(mesh.faces))]
     for a, b in mesh.face_adjacency:
         nbrs[a].append(int(b))
@@ -116,7 +116,7 @@ def _face_neighbours(mesh: Geo) -> list[list[int]]:
     return nbrs
 
 
-def _smoothed_normals(mesh: Geo, rounds: int) -> np.ndarray:
+def smoothed_normals(mesh: Geo, rounds: int = SMOOTHING_ROUNDS) -> np.ndarray:
     """Edge-preserving (bilateral) smoothing of face normals, so scanner noise does not break
     up flat areas while sharp edges stay sharp. Only used for the angle test; distances always
     use the raw scan."""
@@ -135,8 +135,8 @@ def _smoothed_normals(mesh: Geo, rounds: int) -> np.ndarray:
 
 def _grow_regions(mesh: Geo, level: ToleranceLevel) -> np.ndarray:
     tri_verts = mesh.vertices[mesh.faces]  # (F, 3, 3)
-    nbrs = _face_neighbours(mesh)
-    normals = _smoothed_normals(mesh, SMOOTHING_ROUNDS)
+    nbrs = face_neighbours(mesh)
+    normals = smoothed_normals(mesh)
     cos_max = np.cos(np.radians(MAX_GROW_ANGLE_DEG))
     tol = level.fit_tolerance_mm
 
@@ -272,9 +272,13 @@ def _merge_similar_regions(mesh: Geo, labels: np.ndarray, level: ToleranceLevel)
             return labels
 
 
-def _merge_islands(mesh: Geo, labels: np.ndarray) -> np.ndarray:
-    """A real face of a closed solid meets at least 3 others; fewer means a noise patch."""
+def _merge_islands(mesh: Geo, labels: np.ndarray, level: ToleranceLevel) -> np.ndarray:
+    """A real face of a closed solid meets at least 3 others; fewer means a noise patch, which
+    joins the neighbour it most nearly continues. Only if one plane still fits both, though:
+    a strip of a hole wall also has few neighbours, and is left for the cylinder finder."""
     labels = labels.copy()
+    tol = level.fit_tolerance_mm
+    kept: set[int] = set()
     while True:
         shared = _region_adjacency(mesh, labels)
         counts: dict[int, list[tuple[float, int]]] = {}
@@ -282,16 +286,29 @@ def _merge_islands(mesh: Geo, labels: np.ndarray) -> np.ndarray:
             counts.setdefault(a, []).append((length, b))
             counts.setdefault(b, []).append((length, a))
         areas = np.bincount(labels, weights=mesh.area_faces)
-        islands = [r for r, nb in counts.items() if len(nb) < 3]
+        islands = [r for r, nb in counts.items() if len(nb) < 3 and r not in kept]
         if not islands or len(counts) <= 4:
             return labels
         r = min(islands, key=lambda r: areas[r])
-        # Into the neighbour it most nearly continues, not just the longest-shared one.
-        mine = oriented_plane(mesh, np.flatnonzero(labels == r)).normal
-        labels[labels == r] = max(
+        mine_faces = np.flatnonzero(labels == r)
+        mine = oriented_plane(mesh, mine_faces).normal
+        options = sorted(
             counts[r],
-            key=lambda nb: mine @ oriented_plane(mesh, np.flatnonzero(labels == nb[1])).normal,
-        )[1]
+            key=lambda nb: -(mine @ oriented_plane(mesh, np.flatnonzero(labels == nb[1])).normal),
+        )
+        target = None
+        for _, nb in options:
+            faces = np.concatenate([mine_faces, np.flatnonzero(labels == nb)])
+            pts = mesh.vertices[np.unique(mesh.faces[faces])]
+            if np.percentile(np.abs(fit_plane(pts).distance(pts)), 99) <= tol:
+                target = nb
+                break
+        if target is None and areas[r] < level.min_feature_mm**2:
+            target = options[0][1]
+        if target is None:
+            kept.add(r)
+            continue
+        labels[mine_faces] = target
 
 
 def _build_regions(mesh: Geo, labels: np.ndarray) -> list[Region]:

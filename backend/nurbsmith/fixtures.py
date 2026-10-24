@@ -7,11 +7,14 @@ import trimesh
 
 
 def add_noise(mesh: trimesh.Trimesh, sigma_mm: float, seed: int = 0) -> trimesh.Trimesh:
-    """Jitter vertices along their normals, like a structured-light scanner."""
+    """Jitter every vertex by isotropic Gaussian noise (sigma per axis), like a scanner.
+
+    Not along vertex normals: at a CAD edge those point sideways, which would slide edge
+    vertices within the face and leave long runs of them perfectly coplanar.
+    """
     rng = np.random.default_rng(seed)
     noisy = mesh.copy()
-    offsets = rng.normal(0.0, sigma_mm, size=len(noisy.vertices))
-    noisy.vertices = noisy.vertices + noisy.vertex_normals * offsets[:, None]
+    noisy.vertices = noisy.vertices + rng.normal(0.0, sigma_mm, size=noisy.vertices.shape)
     return noisy
 
 
@@ -24,6 +27,13 @@ def box(size=(40.0, 30.0, 20.0), subdivisions: int = 3) -> trimesh.Trimesh:
 
 def cylinder(radius: float = 10.0, height: float = 30.0, sections: int = 96) -> trimesh.Trimesh:
     return trimesh.creation.cylinder(radius=radius, height=height, sections=sections)
+
+
+def ball(radius: float = 15.0, squash: float = 0.6) -> trimesh.Trimesh:
+    """A squashed sphere: curved everywhere, and not a cylinder anywhere."""
+    mesh = trimesh.creation.icosphere(subdivisions=4, radius=radius)
+    mesh.apply_scale([1.0, 1.0, squash])
+    return mesh
 
 
 def plate_with_hole(
@@ -79,3 +89,92 @@ def rotated(mesh: trimesh.Trimesh, seed: int = 1) -> trimesh.Trimesh:
         trimesh.transformations.random_rotation_matrix(np.random.default_rng(seed).random(3))
     )
     return out
+
+
+# ---------------------------------------------------------------------------------------------
+# Parts with curved features, built as real CAD and tessellated, so the ground truth is exact.
+# ---------------------------------------------------------------------------------------------
+
+
+def from_cad(shape, tolerance: float = 0.02) -> trimesh.Trimesh:
+    """Tessellate a CadQuery shape or workplane into a mesh."""
+    import cadquery as cq
+
+    if isinstance(shape, cq.Workplane):
+        shape = shape.val()
+    verts, tris = shape.tessellate(tolerance, angularTolerance=0.1)
+    mesh = trimesh.Trimesh(np.array([v.toTuple() for v in verts]), np.array(tris))
+    mesh.merge_vertices()
+    trimesh.repair.fix_normals(mesh)
+    return mesh
+
+
+def holed_plate_cad():
+    """60 x 40 x 8 plate with four M6 clearance holes (6.6 mm)."""
+    import cadquery as cq
+
+    return (
+        cq.Workplane("XY")
+        .box(60, 40, 8)
+        .faces(">Z")
+        .workplane()
+        .pushPoints([(-20, -10), (20, -10), (-20, 10), (20, 10)])
+        .hole(6.6)
+    )
+
+
+def filleted_block_cad():
+    """50 x 30 x 20 block with its four vertical edges filleted at 5 mm."""
+    import cadquery as cq
+
+    return cq.Workplane("XY").box(50, 30, 20).edges("|Z").fillet(5)
+
+
+def boss_plate_cad():
+    """60 x 40 x 6 plate with a 16 mm boss, 10 mm tall."""
+    import cadquery as cq
+
+    return cq.Workplane("XY").box(60, 40, 6).faces(">Z").workplane().circle(8).extrude(10)
+
+
+def blind_hole_block_cad():
+    """40 x 40 x 20 block with a 10 mm blind hole, 12 mm deep."""
+    import cadquery as cq
+
+    return cq.Workplane("XY").box(40, 40, 20).faces(">Z").workplane().hole(10, 12)
+
+
+def bracket_cad():
+    """L-bracket with a 4 mm inside fillet and two 5.5 mm holes in the base."""
+    import cadquery as cq
+
+    base = cq.Workplane("XY").box(60, 30, 6).translate((0, 0, 3))
+    wall = cq.Workplane("XY").box(6, 30, 40).translate((27, 0, 20))
+    body = base.union(wall).edges("|Y").edges(cq.selectors.NearestToPointSelector((24, 0, 6)))
+    body = body.fillet(4)
+    return (
+        body.faces("<Z")
+        .workplane(centerOption="CenterOfBoundBox")
+        .pushPoints([(-15, 0), (5, 0)])
+        .hole(5.5)
+    )
+
+
+def holed_plate() -> trimesh.Trimesh:
+    return from_cad(holed_plate_cad())
+
+
+def filleted_block() -> trimesh.Trimesh:
+    return from_cad(filleted_block_cad())
+
+
+def boss_plate() -> trimesh.Trimesh:
+    return from_cad(boss_plate_cad())
+
+
+def blind_hole_block() -> trimesh.Trimesh:
+    return from_cad(blind_hole_block_cad())
+
+
+def bracket() -> trimesh.Trimesh:
+    return from_cad(bracket_cad())
