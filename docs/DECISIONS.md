@@ -2,6 +2,15 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-24 (real scans)
+- **Scan coverage is the user's job** (Zac). Fill gaps only from context: extended planes,
+  measured wall thickness, closing an open end. When big regions were never scanned, say so
+  rather than invent them.
+- **Design files are the best tests.** A mesh exported from the user's CAD gives exact
+  ground truth; Zac's scanner holder is the first (`tests/fixtures/`).
+- **The base solid is the part before features.** Blocks near a fillet vote by the sharp
+  corner, blocks in a hole count as solid, blocks in a boss as empty. Then features apply.
+
 ## 2026-10-24 (M2)
 - **Features are CAD operations on a flat base solid.** The base is built from planes only;
   bosses are fused, fillets applied with OpenCASCADE's fillet, holes cut. A feature that

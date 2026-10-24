@@ -10,7 +10,7 @@ import numpy as np
 import trimesh
 
 from .brep import UnsupportedGeometry, check_supported, merge_coplanar, rebuild_solid, snap_planes
-from .cells import cell_solid
+from .cells import Corner, cell_solid
 from .cylinders import consolidate, find_cylinders, planes_around, shared_lengths
 from .features import Feature, apply_features, cylinder_between, plan_features
 from .quality import FitScore, ScanQuality, deviations, fit_score, scan_quality
@@ -207,7 +207,26 @@ def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
             base = rebuild_solid(work, base_planes, working.fit_tolerance_mm, labels, through)
     except (UnsupportedGeometry, ValueError):
         # Gaps, warps or ragged edges kept the traced faces from closing; build from blocks.
-        base = cell_solid(work, base_planes, working.fit_tolerance_mm, working.min_feature_mm)
+        patch_by_id = {p.id: p for p in patches}
+        plane_by_id = {r.id: r for r in planes}
+        corners = [
+            Corner(
+                patch_by_id[f.patch].faces,
+                plane_by_id[f.planes[0]],
+                plane_by_id[f.planes[1]],
+                patch_by_id[f.patch].convex,
+            )
+            for f in features
+            if f.kind in ("fillet", "sharp")
+        ]
+        fixed = [
+            (patch_by_id[f.patch].faces, f.kind == "hole")
+            for f in features
+            if f.kind in ("hole", "boss")
+        ]
+        base = cell_solid(
+            work, base_planes, working.fit_tolerance_mm, working.min_feature_mm, corners, fixed
+        )
     solid, failed = apply_features(base, features, planes)
     dist = deviations(mesh, solid, working.fit_tolerance_mm)
     # Never hand back a model that plainly is not the part.

@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-24_
+_Last updated: 2026-10-24 (later)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -38,7 +38,18 @@ _Last updated: 2026-10-24_
   smoke detector and bottle (freeform): not converting yet.
 
 ## In progress
-- Nothing.
+- **Real-scan readiness, part 1 (scanner holder):** Zac's own design (`tests/fixtures/
+  scanner_holder.stl`) is now a ground-truth test. It went from 77% to 95% within 0.3 mm,
+  with volume within 0.5%. Changes:
+  - Bowed walls (a huge-radius sliver of a cylinder) stay planes.
+  - The block solid starts from the oriented bounding box.
+  - Planes cut through to the sharp corner under their fillets, and blocks there vote by
+    that sharp corner.
+  - Hole walls count as solid until drilled, and boss walls as empty until added.
+  - Fillets are applied together, biggest first, keeping those that work together.
+  - Stray zero-length edges no longer break fillets.
+  - The scan of the holder converts at 87%. Its deep pockets were not fully scanned, which
+    Zac says is a coverage problem, not ours.
 
 ## Next (M2.5: real-scan readiness, agreed with Zac)
 - Thin walls: detect wall pairs, measure thickness, patch missing wall areas from it (bin).
