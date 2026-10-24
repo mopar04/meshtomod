@@ -14,6 +14,8 @@ closes over gaps by construction.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import cadquery as cq
 import numpy as np
 import trimesh
@@ -36,23 +38,57 @@ MIN_BODY_SHARE = 0.05
 FUSE_BATCH = 16
 
 
+@dataclass
+class Corner:
+    """A rounded edge the base solid gets as a sharp corner (the fillet is added after): the
+    fillet's faces, the two planes it joins, and whether it rounds an outside corner."""
+
+    faces: np.ndarray
+    a: Region
+    b: Region
+    convex: bool
+
+    def inside(self, points: np.ndarray) -> np.ndarray:
+        """Inside the sharp corner: behind both planes for an outside corner, behind either
+        for an inside one."""
+        da, db = self.a.plane.distance(points) < 0, self.b.plane.distance(points) < 0
+        return da & db if self.convex else da | db
+
+
 def cell_solid(
-    mesh: Geo, planes: list[Region], tol: float, min_feature: float
+    mesh: Geo,
+    planes: list[Region],
+    tol: float,
+    min_feature: float,
+    corners: list[Corner] | None = None,
+    fixed: list[tuple[np.ndarray, bool]] | None = None,
 ) -> cq.Solid | cq.Compound:
+    """Corners are the fillets the base solid leaves sharp. Each plane carries on under its
+    fillets to the corner, so it cuts there too, and blocks in a fillet's corner count as
+    inside or outside by the sharp corner, not by the rounded scan.
+
+    fixed lists faces whose side is already decided: (faces, True) for holes, which are solid
+    until they are drilled, and (faces, False) for bosses, which are added after."""
+    corners = corners or []
+    fixed = fixed or []
+    blends: dict[int, list[np.ndarray]] = {}
+    for c in corners:
+        for r in (c.a, c.b):
+            blends.setdefault(r.id, []).append(c.faces)
     pts = mesh.vertices
-    margin = 0.05 * float(np.linalg.norm(np.ptp(pts, axis=0))) + tol
-    lo, hi = pts.min(axis=0) - margin, pts.max(axis=0) + margin
-    cells = [
-        np.array(
-            [[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
-        )
-    ]
-    eps = 1e-6 * float(np.linalg.norm(hi - lo))
+    # Start from the scan's oriented bounding box, only a tolerance bigger: a block that no
+    # plane cuts near the outside then cannot carry a spill beyond the part.
+    to_box, extents = trimesh.bounds.oriented_bounds(pts)
+    half = extents / 2 + tol
+    box = np.array([[x, y, z] for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)]) * half
+    cells = [trimesh.transform_points(box, np.linalg.inv(to_box))]
+    eps = 1e-6 * float(np.linalg.norm(2 * half))
     rng = np.random.default_rng(0)
     reach = max(REACH_TOLS * tol, min_feature)
 
     for r in sorted(planes, key=lambda r: -r.area):
-        support = pts[np.unique(mesh.faces[r.faces])]
+        faces = np.concatenate([r.faces, *blends.get(r.id, [])])
+        support = pts[np.unique(mesh.faces[faces])]
         if len(support) > 2000:
             support = support[rng.choice(len(support), 2000, replace=False)]
         out = []
@@ -69,7 +105,7 @@ def cell_solid(
         if len(cells) > MAX_CELLS:
             raise UnsupportedGeometry("This part has too many separate faces to rebuild yet.")
 
-    inside = _inside_cells(mesh, cells, rng)
+    inside = _inside_cells(mesh, cells, rng, corners, fixed)
     if not inside:
         raise UnsupportedGeometry("Could not find the inside of the scan.")
     solids = [s for s in (_hull_solid(c) for c in inside) if s is not None]
@@ -130,7 +166,13 @@ def _clip(cell: np.ndarray, normal: np.ndarray, offset: float) -> np.ndarray | N
     return piece[hull.vertices]
 
 
-def _inside_cells(mesh: Geo, cells: list[np.ndarray], rng: np.random.Generator) -> list:
+def _inside_cells(
+    mesh: Geo,
+    cells: list[np.ndarray],
+    rng: np.random.Generator,
+    corners: list[Corner],
+    fixed: list[tuple[np.ndarray, bool]],
+) -> list:
     surface = trimesh.Trimesh(mesh.vertices, mesh.faces, process=False)
     samples, owner = [], []
     for i, cell in enumerate(cells):
@@ -150,7 +192,13 @@ def _inside_cells(mesh: Geo, cells: list[np.ndarray], rng: np.random.Generator) 
         chunk = samples_arr[at : at + SAMPLE_CHUNK]
         closest, _, tri = trimesh.proximity.closest_point(surface, chunk)
         # Inside if the nearest bit of surface faces away from the point.
-        side[at : at + SAMPLE_CHUNK] = ((chunk - closest) * mesh.face_normals[tri]).sum(axis=1) < 0
+        inside = ((chunk - closest) * mesh.face_normals[tri]).sum(axis=1) < 0
+        for c in corners:
+            near = np.isin(tri, c.faces)
+            inside[near] = c.inside(chunk[near])
+        for faces, value in fixed:
+            inside[np.isin(tri, faces)] = value
+        side[at : at + SAMPLE_CHUNK] = inside
     share = np.bincount(owner_arr, weights=side, minlength=len(cells)) / np.bincount(
         owner_arr, minlength=len(cells)
     )

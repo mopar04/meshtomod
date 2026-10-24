@@ -46,6 +46,9 @@ MIN_FIT_POINTS = 12
 # The normals must turn through between these shares of the arc the points span.
 NORMAL_TURN_SHARE = 0.5
 NORMAL_TURN_MAX = 2.0
+# Above this share of the part's size, a radius spanning under this coverage is a bowed wall.
+WARP_RADIUS_SHARE = 0.25
+WARP_MAX_COVERAGE = 0.15
 
 
 @dataclass
@@ -252,6 +255,11 @@ def _describe(
     coverage = len(sectors) / COVERAGE_SECTORS
     # A pair of strips spanning almost no angle is just two planes meeting at a shallow crease.
     if coverage < 2 / COVERAGE_SECTORS:
+        return None
+    # A sliver of a cylinder much bigger than the part is a flat wall that bowed (a print that
+    # warped, a panel that sagged); it stays a plane.
+    size = float(np.linalg.norm(np.ptp(mesh.vertices, axis=0)))
+    if cyl.radius > WARP_RADIUS_SHARE * size and coverage < WARP_MAX_COVERAGE:
         return None
     # On a real cylinder the surface turns as far as the arc does. A wide, gentle "cylinder"
     # fitted to a few big flat triangles spans an arc while its normals barely turn.

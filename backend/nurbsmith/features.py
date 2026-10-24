@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 import cadquery as cq
 import numpy as np
+from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet
 from scipy.optimize import minimize_scalar
 
 from .cylinders import FULL_COVERAGE, CurvedPatch, Cylinder, fit_circle_on_axis
@@ -241,10 +242,19 @@ def apply_features(
         if f.kind == "boss":
             rod = cylinder_between(f.start - OVERSHOOT_MM * _unit(f.end - f.start), f.end, f.radius)
             attempt(f, lambda s, rod=rod: s.fuse(rod).clean())
-    for f in features:
-        if f.kind == "fillet":
-            a, b = by_id[f.planes[0]].plane, by_id[f.planes[1]].plane
-            attempt(f, lambda s, a=a, b=b, r=f.radius: s.fillet(r, _edges_on(s, a, b)))
+    fillets = [f for f in features if f.kind == "fillet"]
+    # Biggest first, keeping each fillet that still works together with those kept so far.
+    kept: list[Feature] = []
+    for f in sorted(fillets, key=lambda f: -f.radius):
+        if _fillet_all(solid, [*kept, f], by_id) is not None:
+            kept.append(f)
+        else:
+            failed.append(f.kind)
+    together = _fillet_all(solid, kept, by_id) if kept else None
+    if together is not None and len(together.Solids()) == bodies:
+        solid = together
+    else:
+        failed += [f.kind for f in kept]
     for f in features:
         if f.kind == "hole":
             d = _unit(f.end - f.start)
@@ -362,12 +372,42 @@ def _fillet_radius(a: Plane, b: Plane, convex: bool, pts: np.ndarray, guess: flo
     return float(res.x)
 
 
+def _fillet_all(
+    solid: cq.Shape, fillets: list[Feature], by_id: dict[int, Region]
+) -> cq.Shape | None:
+    """Every fillet in one operation, each edge with its own radius; None if it fails."""
+    maker = BRepFilletAPI_MakeFillet(solid.wrapped)
+    for f in fillets:
+        edges = _edges_on(solid, by_id[f.planes[0]].plane, by_id[f.planes[1]].plane)
+        if not edges:
+            return None
+        for e in edges:
+            maker.Add(f.radius, e.wrapped)
+    try:
+        maker.Build()
+        if not maker.IsDone():
+            return None
+        result = cq.Shape.cast(maker.Shape())
+    except Exception:  # OpenCASCADE raises a variety of errors here
+        return None
+    if not all(p.isValid() for p in result.Solids()):
+        return None
+    return result
+
+
 def _edges_on(solid: cq.Shape, a: Plane, b: Plane) -> list[cq.Edge]:
     size = solid.BoundingBox().DiagonalLength
     eps = 1e-6 * size + 1e-7
+    line = np.cross(a.normal, b.normal)
+    line /= np.linalg.norm(line)
     out = []
     for e in solid.Edges():
         pts = np.array([e.startPoint().toTuple(), e.endPoint().toTuple()])
-        if np.abs(a.distance(pts)).max() <= eps and np.abs(b.distance(pts)).max() <= eps:
+        if np.abs(a.distance(pts)).max() > eps or np.abs(b.distance(pts)).max() > eps:
+            continue
+        # Only edges running along the line where the planes meet: a sliver or a point where
+        # they happen to touch makes the fillet fail.
+        run = pts[1] - pts[0]
+        if np.linalg.norm(run) > 1e-3 * size and abs(run @ line) > 0.99 * np.linalg.norm(run):
             out.append(e)
     return out
