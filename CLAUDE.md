@@ -27,6 +27,7 @@ source of truth: read and update the docs below so any session can pick up the w
   - `features.py` patches to CAD features (hole, boss, fillet, round body), standard sizes
   - `cells.py` fallback solid from plane-cut blocks, for scans with gaps and warps
   - `quality.py` scan noise estimate, fit score, deviation colours
+  - `orient.py` placement before export: lay on face, true up, trim flush, origin, up axis
   - `convert.py` the pipeline: repair, quality, decimate, segment, cylinders, snap, rebuild,
     features, score
   - `fixtures.py` synthetic meshes with known answers, plus scanner-like noise

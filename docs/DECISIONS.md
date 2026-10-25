@@ -2,6 +2,21 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-25 (placement)
+- **Lay-on-face candidates come from the convex hull, like OrcaSlicer** (Zac asked for Orca's
+  familiar interface). Only faces the part rests on stably are offered. We reimplemented the
+  idea in Python rather than porting Orca's C++.
+- **Placement is applied to the converted solid, not just the scan.** The scan is turned
+  before converting (the pipeline doesn't care), then the solid's bottom face and main wall
+  are trued up exactly, so the STEP's faces are exactly on the axes, not 0.1 degree off.
+- **Trim flush cuts the solid, after the fit score.** The score still compares the model with
+  the whole scan; trimmed bumps show up in the deviation view, which is honest about it.
+- **The viewer shows the export's origin.** No more recentring for display: the grid origin
+  is where the part will sit in CAD. Changing placement clears a result, so the download
+  always matches what is shown.
+- **API default is unchanged placement** (`origin=keep`, no lay flat). The UI defaults to
+  bottom centre, Z up.
+
 ## 2026-10-25 (batch scans)
 - **Merge pairs only points facing roughly the same way** (normals within about 120
   degrees). Without it, the thin-wall tray's underside matched onto its own floor, one wall

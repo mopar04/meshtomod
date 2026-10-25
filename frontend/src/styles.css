@@ -57,3 +57,10 @@ footer a { color: #7fb0ff; }
 .features li { padding: 3px 0; }
 .features .count { display: inline-block; min-width: 2.2em; color: var(--muted); }
 .note { color: var(--muted); font-size: 12px; margin: 0 0 8px; }
+
+.options { display: grid; grid-template-columns: auto 1fr; gap: 8px 10px; align-items: center; font-size: 13px; margin-top: 10px; }
+.options > span { color: var(--muted); }
+.levels.small button { padding: 6px 2px; font-size: 12px; }
+.trim { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+.trim input { width: 80px; padding: 6px 8px; border-radius: 6px; border: 1px solid #3a424d; background: #232830; color: inherit; font: inherit; }
+.hint { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); background: #15181dcc; padding: 8px 12px; border-radius: 8px; font-size: 13px; }

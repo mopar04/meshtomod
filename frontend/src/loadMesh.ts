@@ -4,6 +4,7 @@ import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import type { Origin, UpAxis } from "./api";
 
 export const ACCEPTED = ".stl,.obj,.ply,.3mf";
 
@@ -35,30 +36,49 @@ export function parseBuffer(buffer: ArrayBuffer, ext: string): THREE.BufferGeome
   }
 }
 
+/** CAD Z up to three.js Y up, for display only. */
+export function toThree(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+  geometry.rotateX(-Math.PI / 2);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+/** Y up in the export: the scan's up (Z) becomes Y and the base lands on XZ. */
+const Z_TO_Y = new THREE.Matrix4().set(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1);
+
+export function rowsToMatrix(rows: number[][]): THREE.Matrix4 {
+  // Rows as the backend writes them; Matrix4.set takes row-major values too.
+  const r = rows.length === 3 ? [...rows.map((row) => [...row, 0]), [0, 0, 0, 1]] : rows;
+  return new THREE.Matrix4().set(...(r.flat() as Parameters<THREE.Matrix4["set"]>));
+}
+
 /**
- * Scans and CAD are Z-up in millimetres; three.js is Y-up. The scan decides the placement
- * (centred, standing on the grid) and every result is moved the same way so they overlay.
+ * Scan frame to view frame (Z up), before converting: the chosen face's rotation, then the
+ * chosen point of the box moved onto the origin, worked out in the export's axes. The same
+ * steps as the backend's orient.place, on the scan instead of the model, so close but not
+ * exact; after converting the backend's own matrix is used.
  */
-export class Placement {
-  private offset = new THREE.Vector3();
-
-  constructor(scan: THREE.BufferGeometry) {
-    const g = scan.clone().rotateX(-Math.PI / 2);
-    g.computeBoundingBox();
-    const box = g.boundingBox!;
-    this.offset.set(
-      -(box.min.x + box.max.x) / 2,
-      -box.min.y,
-      -(box.min.z + box.max.z) / 2,
-    );
-  }
-
-  apply(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
-    geometry.rotateX(-Math.PI / 2);
-    geometry.translate(this.offset.x, this.offset.y, this.offset.z);
-    geometry.computeVertexNormals();
-    return geometry;
-  }
+export function previewMatrix(
+  scan: THREE.BufferGeometry,
+  rotation: number[][] | null,
+  origin: Origin,
+  up: UpAxis,
+): THREE.Matrix4 {
+  const turn = rotation ? rowsToMatrix(rotation) : new THREE.Matrix4();
+  const toExport = up === "y" ? Z_TO_Y.clone() : new THREE.Matrix4();
+  const g = scan.clone().applyMatrix4(toExport.clone().multiply(turn));
+  g.computeBoundingBox();
+  const { min, max } = g.boundingBox!;
+  g.dispose();
+  const point = min.clone().add(max).multiplyScalar(0.5);
+  if (origin === "bottom") {
+    if (up === "y") point.y = min.y;
+    else point.z = min.z;
+  } else if (origin === "corner") point.copy(min);
+  const shift = new THREE.Matrix4();
+  if (origin !== "keep") shift.makeTranslation(-point.x, -point.y, -point.z);
+  return toExport.clone().invert().multiply(shift).multiply(toExport).multiply(turn);
 }
 
 function mergeObject(root: THREE.Object3D): THREE.BufferGeometry {
