@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-25 (batch test prints scanned)_
+_Last updated: 2026-10-25 (placement: lay on face, origin, up axis, trim flush)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -92,6 +92,12 @@ _Last updated: 2026-10-25 (batch test prints scanned)_
   gauge 85% (0.25 mm off in height: a 4 mm plate leaves little wall to line up on).
   Converting the merges: thin wall 93.3% (the tube's outside is missed), size gauge 97.7%;
   the freeform, surfaces plate and turned part are refused as curved (M3).
+
+- **Placement before export** (`orient.py`, Zac 2026-10-25): Orca-style lay on face
+  (hull faces the part rests on stably, hover and click in the viewer), squared to X/Y,
+  origin at bottom centre / box centre / low corner / kept, Z up or Y up, and trim flush
+  (cut bumps up to N mm below the base face). The STEP's base face is exactly level and on
+  the origin. Tested on tilted CAD parts with and without noise; not yet on Zac's scans.
 
 ## Next (M2.5: real-scan readiness, agreed with Zac)
 - Thin walls: detect wall pairs, measure thickness, patch missing wall areas from it (bin).

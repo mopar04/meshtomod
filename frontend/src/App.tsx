@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
-import type * as THREE from "three";
+import { useEffect, useMemo, useState } from "react";
+import * as THREE from "three";
 import {
   type Feature,
+  type Origin,
+  type PlacementOptions,
+  type RestingFace,
+  type UpAxis,
   convertMesh,
   fetchBuffer,
   getTolerances,
@@ -10,11 +14,41 @@ import {
   type MeshSummary,
   type ToleranceLevel,
 } from "./api";
-import { ACCEPTED, needsUnits, parseBuffer, parseMeshFile, Placement, UNITS, type Units } from "./loadMesh";
+import {
+  ACCEPTED,
+  needsUnits,
+  parseBuffer,
+  parseMeshFile,
+  previewMatrix,
+  rowsToMatrix,
+  toThree,
+  UNITS,
+  type Units,
+} from "./loadMesh";
 import UnitsPrompt from "./UnitsPrompt";
 import Viewer, { type ViewMode } from "./Viewer";
 
 const UNITS_KEY = "nurbsmith.units";
+const UP_KEY = "nurbsmith.up";
+
+const ORIGINS: { key: Origin; label: string; hint: string }[] = [
+  { key: "bottom", label: "Bottom", hint: "Centre of the base on the origin" },
+  { key: "center", label: "Centre", hint: "Centre of the bounding box on the origin" },
+  { key: "corner", label: "Corner", hint: "Low corner on the origin, part in +X +Y +Z" },
+  { key: "keep", label: "Keep", hint: "Where the scanner put it" },
+];
+const UP_AXES: { key: UpAxis; label: string; hint: string }[] = [
+  { key: "z", label: "Z up", hint: "Base on XY. Onshape, FreeCAD, Shapr3D, Fusion set to Z up" },
+  { key: "y", label: "Y up", hint: "Base on XZ. SolidWorks, Fusion set to Y up" },
+];
+
+function storedUp(): UpAxis {
+  try {
+    return localStorage.getItem(UP_KEY) === "y" ? "y" : "z";
+  } catch {
+    return "z";
+  }
+}
 const DONATE_URL = import.meta.env.VITE_DONATE_URL as string | undefined;
 
 function storedUnits(): Units | null {
@@ -30,8 +64,13 @@ export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [units, setUnits] = useState<Units>("mm");
-  const [placement, setPlacement] = useState<Placement | null>(null);
-  const [scan, setScan] = useState<THREE.BufferGeometry | null>(null);
+  const [raw, setRaw] = useState<THREE.BufferGeometry | null>(null);
+  const [restingFaces, setRestingFaces] = useState<RestingFace[]>([]);
+  const [face, setFace] = useState<RestingFace | null>(null);
+  const [origin, setOrigin] = useState<Origin>("bottom");
+  const [up, setUp] = useState<UpAxis>(storedUp);
+  const [trimFlushMm, setTrimFlushMm] = useState(0);
+  const [picking, setPicking] = useState(false);
   const [model, setModel] = useState<THREE.BufferGeometry | null>(null);
   const [deviation, setDeviation] = useState<THREE.BufferGeometry | null>(null);
   const [mode, setMode] = useState<ViewMode>("scan");
@@ -52,6 +91,13 @@ export default function App() {
       .catch(() => setError("Backend not reachable. Start it with docker compose up."));
   }, []);
 
+  useEffect(() => {
+    if (!picking) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPicking(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [picking]);
+
   function choose(f: File) {
     const remembered = storedUnits();
     if (needsUnits(f) && !remembered) setPendingFile(f);
@@ -61,21 +107,23 @@ export default function App() {
   async function open(f: File, u: Units) {
     setFile(f);
     setUnits(u);
-    setResult(null);
-    setModel(null);
-    setDeviation(null);
+    clearResult();
     setSummary(null);
+    setRaw(null);
+    setRestingFaces([]);
+    setFace(null);
+    setTrimFlushMm(0);
+    setPicking(false);
     setError(null);
     setMode("scan");
     setStatus(`Loading ${f.name}…`);
     try {
       const geometry = await parseMeshFile(f);
       geometry.scale(UNITS[u], UNITS[u], UNITS[u]);
-      const place = new Placement(geometry);
-      setPlacement(place);
-      setScan(place.apply(geometry));
+      setRaw(geometry);
       const res = await uploadMesh(f, u);
       setSummary(res.summary);
+      setRestingFaces(res.lay_flat);
       setStatus(f.name);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -83,19 +131,54 @@ export default function App() {
     }
   }
 
+  function clearResult() {
+    setResult(null);
+    setModel(null);
+    setDeviation(null);
+    setMode("scan");
+  }
+
+  /** Placement changes make a result stale: it was exported in the old place. */
+  function changePlacement(change: () => void) {
+    change();
+    if (result) clearResult();
+  }
+
+  const place: PlacementOptions = { face, origin, up, trimFlushMm };
+
+  // Scan frame to view frame: the backend's after converting, a preview before.
+  const toView = useMemo(() => {
+    if (result) return rowsToMatrix(result.report.placement.matrix);
+    if (!raw) return null;
+    return previewMatrix(raw, face?.rotation ?? null, origin, up);
+  }, [raw, result, face, origin, up]);
+  const scan = useMemo(
+    () => (raw && toView ? toThree(raw.clone().applyMatrix4(toView)) : null),
+    [raw, toView],
+  );
+  const faceMeshes = useMemo(() => {
+    if (!picking || !toView) return [];
+    return restingFaces.map((rf) => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(rf.triangles, 3));
+      return toThree(g.applyMatrix4(toView));
+    });
+  }, [picking, restingFaces, toView]);
+
   async function runConversion() {
-    if (!file || !placement) return;
+    if (!file || !raw) return;
     setBusy(true);
     setError(null);
     setStatus(`Converting ${file.name}…`);
     try {
-      const res = await convertMesh(file, level, units);
+      setPicking(false);
+      const res = await convertMesh(file, level, units, place);
       const [stl, ply] = await Promise.all([
         fetchBuffer(res.downloads.model_stl),
         fetchBuffer(res.downloads.deviation_ply),
       ]);
-      setModel(placement.apply(parseBuffer(stl, "stl")));
-      setDeviation(placement.apply(parseBuffer(ply, "ply")));
+      setModel(toThree(parseBuffer(stl, "stl")));
+      setDeviation(toThree(parseBuffer(ply, "ply")));
       setResult(res);
       setMode("overlay");
       setStatus(file.name);
@@ -170,6 +253,88 @@ export default function App() {
           </dl>
         )}
 
+        <h2>Placement</h2>
+        <div className="levels">
+          <button
+            className={picking ? "active" : ""}
+            disabled={!restingFaces.length}
+            onClick={() => setPicking((p) => !p)}
+            title="Show the flat faces the part can rest on, then click one"
+          >
+            {picking ? "Click a face…" : "Lay on face"}
+          </button>
+          <button
+            disabled={!face}
+            onClick={() => changePlacement(() => setFace(null))}
+            title="Back to the scanner's orientation"
+          >
+            As scanned
+          </button>
+        </div>
+        {face && (
+          <p className="note">
+            Resting on a {Math.round(face.area_mm2).toLocaleString()} mm² face, squared to X and Y.
+          </p>
+        )}
+        <div className="options">
+          <span>Origin</span>
+          <div className="levels small">
+            {ORIGINS.map((o) => (
+              <button
+                key={o.key}
+                className={o.key === origin ? "active" : ""}
+                title={o.hint}
+                onClick={() => changePlacement(() => setOrigin(o.key))}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+          <span>Up</span>
+          <div className="levels small">
+            {UP_AXES.map((a) => (
+              <button
+                key={a.key}
+                className={a.key === up ? "active" : ""}
+                title={a.hint}
+                onClick={() =>
+                  changePlacement(() => {
+                    setUp(a.key);
+                    try {
+                      localStorage.setItem(UP_KEY, a.key);
+                    } catch {
+                      /* private mode: just don't remember */
+                    }
+                  })
+                }
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
+          {face && (
+            <>
+              <span title="Shave bumps and stray ends up to this deep off the base, so the whole face sits flush on the bed">
+                Trim flush
+              </span>
+              <label className="trim">
+                <input
+                  type="number"
+                  min={0}
+                  max={50}
+                  step={0.05}
+                  value={trimFlushMm}
+                  onChange={(e) =>
+                    changePlacement(() => setTrimFlushMm(Math.max(0, Number(e.target.value) || 0)))
+                  }
+                />
+                mm
+              </label>
+            </>
+          )}
+        </div>
+        <p className="note">{UP_AXES.find((a) => a.key === up)!.hint}</p>
+
         <button className="primary wide" disabled={!file || busy} onClick={runConversion}>
           {busy ? "Converting…" : "Convert to STEP"}
         </button>
@@ -210,6 +375,12 @@ export default function App() {
               </dd>
               <dt>Size</dt>
               <dd>{report.size_mm.map((v) => v.toFixed(1)).join(" × ")} mm</dd>
+              {report.placement.trimmed_mm > 0 && (
+                <>
+                  <dt>Trimmed flush</dt>
+                  <dd>{report.placement.trimmed_mm.toFixed(2)} mm off the base</dd>
+                </>
+              )}
             </dl>
             {report.features.length > 0 && (
               <>
@@ -260,7 +431,20 @@ export default function App() {
       </aside>
 
       <main className="viewport">
-        <Viewer scan={scan} model={model} deviation={deviation} mode={mode} />
+        <Viewer
+          scan={scan}
+          model={model}
+          deviation={deviation}
+          mode={mode}
+          faces={faceMeshes}
+          onPickFace={(i) => {
+            changePlacement(() => setFace(restingFaces[i]));
+            setPicking(false);
+          }}
+        />
+        {picking && (
+          <div className="hint">Click the face to lay the part on. Esc to cancel.</div>
+        )}
         {model && (
           <div className="viewbar">
             {(["scan", "model", "overlay", "deviation"] as ViewMode[]).map((m) => (

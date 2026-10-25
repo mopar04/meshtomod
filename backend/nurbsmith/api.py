@@ -9,6 +9,7 @@ import uuid
 from collections import OrderedDict
 from pathlib import Path
 
+import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,9 +17,16 @@ from fastapi.responses import FileResponse
 
 from . import __version__
 from .brep import UnsupportedGeometry
-from .convert import convert
+from .convert import convert, drop_loose_pieces
 from .merge import MergeError, merge_scans
 from .mesh_io import SUPPORTED_FORMATS, MeshLoadError, load_mesh, summarize
+from .orient import (
+    check_options,
+    homogeneous,
+    lay_flat_rotation,
+    place,
+    resting_faces,
+)
 from .quality import deviation_colors
 from .step_io import write_step
 from .tolerance import DEFAULT_LEVEL, LEVELS, get_level
@@ -72,11 +80,26 @@ async def _read_mesh(file: UploadFile, units: str = "mm"):
 @app.post("/api/meshes")
 async def upload_mesh(file: UploadFile = File(...), units: str = Form("mm")) -> dict:
     mesh = await _read_mesh(file, units)
+    faces = await run_in_threadpool(lambda: resting_faces(drop_loose_pieces(mesh.copy())))
     return {
         "filename": file.filename,
         "summary": summarize(mesh).as_dict(),
         "supported_formats": list(SUPPORTED_FORMATS),
+        "lay_flat": [f.as_dict() for f in faces],
     }
+
+
+def _lay_flat(text: str) -> np.ndarray | None:
+    """'nx,ny,nz': the outward normal of the face to lay the part on, in the scan's frame."""
+    if not text:
+        return None
+    try:
+        normal = np.array([float(v) for v in text.split(",")])
+    except ValueError:
+        normal = np.zeros(0)
+    if normal.shape != (3,) or not np.isfinite(normal).all() or np.linalg.norm(normal) < 1e-9:
+        raise HTTPException(422, "lay_flat must be a face normal written as x,y,z")
+    return normal / np.linalg.norm(normal)
 
 
 @app.post("/api/convert")
@@ -85,13 +108,24 @@ async def convert_mesh(
     level: str = Form(DEFAULT_LEVEL.key),
     units: str = Form("mm"),
     second_file: UploadFile | None = File(None),
+    lay_flat: str = Form(""),
+    origin: str = Form("keep"),
+    up: str = Form("z"),
+    trim_flush: float = Form(0.0),
 ) -> dict:
     """Convert a scan. second_file is an optional scan of the other side of the same part
-    (the bottom, or the back); it is lined up with the first and merged before converting."""
+    (the bottom, or the back); it is lined up with the first and merged before converting.
+
+    Placement of the STEP: lay_flat is the normal of the face to rest the part on (one of the
+    upload's lay_flat suggestions), origin the point moved onto the origin (keep, center,
+    bottom, corner) and up the CAD tool's up axis (z: base on XY; y: base on XZ). trim_flush
+    (mm, with lay_flat) cuts bumps up to that deep off the base so it sits flush."""
     try:
         tol = get_level(level)
+        check_options(origin, up, trim_flush)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    normal = _lay_flat(lay_flat)
     mesh = await _read_mesh(file, units)
     merged = None
     if second_file is not None:
@@ -101,6 +135,13 @@ async def convert_mesh(
         except MergeError as exc:
             raise HTTPException(422, str(exc)) from exc
         mesh = merged.mesh
+    laid = None
+    laid_or_eye = np.eye(3)
+    if normal is not None:
+        # As the upload suggested it: on the scan without its loose bits.
+        laid = laid_or_eye = lay_flat_rotation(drop_loose_pieces(mesh.copy()), normal)
+        mesh = mesh.copy()
+        mesh.apply_transform(homogeneous(laid))
     try:
         result = await run_in_threadpool(convert, mesh, tol)
     except UnsupportedGeometry as exc:
@@ -111,10 +152,19 @@ async def convert_mesh(
             422, "Could not rebuild a clean solid from this scan. Try a looser accuracy level."
         ) from exc
 
+    placement = await run_in_threadpool(place, result.solid, laid, origin, up, trim_flush)
+    # Viewer files (and the report's sizes) are in the view frame: Z up, placed. The scan
+    # stays in the frame it was converted in until here.
+    result.solid = placement.view_solid
+    result.scan_mesh = result.scan_mesh.copy()
+    result.scan_mesh.apply_transform(placement.view @ np.linalg.inv(homogeneous(laid_or_eye)))
+    if placement.note:
+        result.notes.append(placement.note)
+
     result_id = uuid.uuid4().hex
     folder = _results_dir / result_id
     folder.mkdir()
-    write_step(result.solid, folder / "model.step")
+    write_step(placement.export_solid, folder / "model.step")
     result.solid.exportStl(str(folder / "model.stl"), tolerance=tol.fit_tolerance_mm / 4)
     scan = result.scan_mesh.copy()
     scan.visual.vertex_colors = deviation_colors(result.deviation_mm, tol.fit_tolerance_mm)
@@ -123,6 +173,7 @@ async def convert_mesh(
 
     stem = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(file.filename or "model").stem) or "model"
     report = result.report()
+    report["placement"] = placement.as_dict()
     if merged is not None:
         report["merge"] = merged.report()
     return {

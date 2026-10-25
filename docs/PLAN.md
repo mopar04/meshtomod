@@ -56,6 +56,25 @@ Shown with every result, so a rough scan never turns into a model of its own art
   are: green within half the tolerance, yellow at the tolerance, red at twice the tolerance.
   The score is always measured against the level the user picked, so it stays honest.
 
+## Placement: lay on face, origin, up axis (`orient.py`)
+
+Scans arrive at whatever angle the turntable left them. Before export the user can:
+- **Lay on face**, as in OrcaSlicer / Bambu Studio: on upload we offer the convex hull's flat
+  faces the part would rest on stably (centre of mass over the face), grouped so a noisy
+  scanned face is one choice, biggest first. The viewer shows them on the part; hover
+  highlights, click lays it down. The part is also turned about the vertical so its
+  footprint's smallest bounding rectangle lines up with X and Y, long side along X.
+- After converting, the model's own bottom face is made exactly level and its biggest wall
+  exactly square to X or Y when within 3 degrees, so the STEP has true axis-aligned faces.
+- **Trim flush** (with lay on face): cut off anything up to N mm below the biggest level
+  face (a bump, a stray end, a ridge artifact), so the whole face sits flush on the bed. If
+  more sticks out than allowed, nothing is cut and a note says how deep it goes.
+- **Origin**: bottom centre (default in the UI), box centre, low corner, or keep.
+- **Up axis**: Z up (base on XY: Onshape, FreeCAD, Shapr3D, Fusion set to Z up) or Y up
+  (base on XZ: SolidWorks, Fusion set to Y up). Remembered per browser.
+The viewer, model.stl and deviation.ply are in a Z-up "view" frame (the same placement); only
+the STEP is turned for Y up. The grid origin in the viewer is the CAD origin.
+
 ## Sink and extrude
 
 User picks a point and a shape (rectangle, circle, slot, rounded rectangle) with size in mm or

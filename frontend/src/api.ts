@@ -21,6 +21,26 @@ export interface MeshSummary {
   volume: number | null;
 }
 
+/** A face the part can rest on (from the upload), in the scan's own frame. */
+export interface RestingFace {
+  normal: number[];
+  area_mm2: number;
+  /** 3x3 rows: scan frame to laid flat (this face down, walls along X and Y). */
+  rotation: number[][];
+  /** Flat xyz list of the hull triangles that make up the face. */
+  triangles: number[];
+}
+
+export type Origin = "keep" | "center" | "bottom" | "corner";
+export type UpAxis = "z" | "y";
+
+export interface PlacementOptions {
+  face: RestingFace | null;
+  origin: Origin;
+  up: UpAxis;
+  trimFlushMm: number;
+}
+
 export interface ConversionReport {
   faces: number;
   face_types: Record<string, number>;
@@ -41,6 +61,13 @@ export interface ConversionReport {
   };
   features: Feature[];
   notes: string[];
+  placement: {
+    origin: Origin;
+    up: UpAxis;
+    /** 4x4 rows: scan frame to the view frame (Z up, placed). */
+    matrix: number[][];
+    trimmed_mm: number;
+  };
 }
 
 export interface Feature {
@@ -80,14 +107,24 @@ function form(file: File, fields: Record<string, string>) {
 }
 
 export async function uploadMesh(file: File, units: Units) {
-  return json<{ filename: string; summary: MeshSummary }>(
+  return json<{ filename: string; summary: MeshSummary; lay_flat: RestingFace[] }>(
     await fetch("/api/meshes", { method: "POST", body: form(file, { units }) }),
   );
 }
 
-export async function convertMesh(file: File, level: string, units: Units) {
+export async function convertMesh(
+  file: File,
+  level: string,
+  units: Units,
+  place: PlacementOptions,
+) {
+  const fields: Record<string, string> = { level, units, origin: place.origin, up: place.up };
+  if (place.face) {
+    fields.lay_flat = place.face.normal.join(",");
+    fields.trim_flush = String(place.trimFlushMm);
+  }
   return json<Conversion>(
-    await fetch("/api/convert", { method: "POST", body: form(file, { level, units }) }),
+    await fetch("/api/convert", { method: "POST", body: form(file, fields) }),
   );
 }
 
