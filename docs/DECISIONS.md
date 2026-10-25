@@ -2,6 +2,14 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-25 (batch scans)
+- **Merge pairs only points facing roughly the same way** (normals within about 120
+  degrees). Without it, the thin-wall tray's underside matched onto its own floor, one wall
+  thickness away and facing the other way. A stricter cut (60 degrees) dropped the pairs
+  along sharp edges that pin the height, and the synthetic tests drifted 0.2 mm.
+- **Test prints are designed by us and batch printed by Zac** (`tools/batch_prints.py`).
+  Every opening is no deeper than it is wide, so a turntable scanner sees inside.
+
 ## 2026-10-24 (merging scans)
 - **We merge top and bottom scans ourselves** (Zac agreed). Scanner software's merge was off
   by about 1 mm and 1.6 degrees on the calibration print, which reads as wrong thickness.

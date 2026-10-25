@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-24 (merging top and bottom scans)_
+_Last updated: 2026-10-25 (batch test prints scanned)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -82,6 +82,16 @@ _Last updated: 2026-10-24 (merging top and bottom scans)_
 - Bowed faces: the "mostly curved" check now measures a face's bow without stray points (a
   seam, a sliver of the next face). The calibration print's underside is bowed about 0.45 mm
   and was refused as curved before.
+
+- **Batch test prints** (`tools/batch_prints.py`, `tools/thin_wall_part.py`), printed and
+  scanned by Zac 2026-10-25. Each scan lined up on its design (within 0.3 mm): thin wall
+  94-98.5%, freeform 99.6/99.9%, size gauge 97%, surfaces plate 98-99%, turned part 97-99.5%,
+  peg 100% and base 96%, wave skin (one side) 99.5%. Scans read 0.1-0.15 mm inside the part
+  on every print (FDM layer ridges). Our merges on the design: thin wall 96.5% (Zac's
+  scanner software 96.8%), freeform 99.8%, surfaces plate 98.9%, turned part 99.5%, size
+  gauge 85% (0.25 mm off in height: a 4 mm plate leaves little wall to line up on).
+  Converting the merges: thin wall 93.3% (the tube's outside is missed), size gauge 97.7%;
+  the freeform, surfaces plate and turned part are refused as curved (M3).
 
 ## Next (M2.5: real-scan readiness, agreed with Zac)
 - Thin walls: detect wall pairs, measure thickness, patch missing wall areas from it (bin).

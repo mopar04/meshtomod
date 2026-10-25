@@ -48,6 +48,10 @@ RIM_STEP_MM = 1.0
 RIM_REACH_MM = 1.5
 RIM_MIN_SHARE = 0.2
 RIM_NEAR_MM = 2.5
+# Paired points must face within about 60 degrees of each other.
+SAME_FACING = -0.5
+# How far apart the final pass first looks for pairs.
+REFINE_REACH_MM = 2.0
 # Overlap counts pairs within this distance after alignment.
 OVERLAP_MM = 0.3
 # A pose is only trusted if this share of the second scan lies on the first.
@@ -81,7 +85,8 @@ def merge_scans(first: trimesh.Trimesh, second: trimesh.Trimesh) -> MergeResult:
     inner_a, inner_b = _away_from(pa, edge_a), _away_from(pb, edge_b)
     fa, fb = _frame(a), _frame(b)
     rng = np.random.default_rng(0)
-    coarse = pb[rng.choice(len(pb), min(COARSE_POINTS, len(pb)), replace=False)]
+    pick = rng.choice(len(pb), min(COARSE_POINTS, len(pb)), replace=False)
+    coarse, coarse_n = pb[pick], nb[pick]
 
     def _air_both(t, every):
         return _air(pb, nb, tree_a, pa, na, t, every) + _air(pa, na, tree_b, pb, nb, _inv(t), every)
@@ -106,7 +111,7 @@ def merge_scans(first: trimesh.Trimesh, second: trimesh.Trimesh) -> MergeResult:
             t = np.eye(4)
             t[:3, :3] = r
             t[:3, 3] = fa @ np.array(shift)
-            t, overlap = _icp(coarse, tree_a, pa, na, t, rounds=8, start=4.0, end=0.6)
+            t, overlap = _icp(coarse, coarse_n, tree_a, pa, na, t, rounds=8, start=4.0, end=0.6)
             starts.append((_score(t, overlap, every=20), t))
 
     picked: list[np.ndarray] = []
@@ -115,10 +120,11 @@ def merge_scans(first: trimesh.Trimesh, second: trimesh.Trimesh) -> MergeResult:
             picked.append(t)
         if len(picked) == REFINE:
             break
-    fine = pb[rng.choice(len(pb), min(FINE_POINTS, len(pb)), replace=False)]
+    pick = rng.choice(len(pb), min(FINE_POINTS, len(pb)), replace=False)
+    fine, fine_n = pb[pick], nb[pick]
     best = None
     for t in picked:
-        t, overlap = _icp(fine, tree_a, pa, na, t, rounds=20, start=1.0, end=OVERLAP_MM)
+        t, overlap = _icp(fine, fine_n, tree_a, pa, na, t, rounds=20, start=1.0, end=OVERLAP_MM)
         t, overlap = _refine(pb, nb, edge_b, pa, na, edge_a, tree_a, t)
         score = _score(t, overlap, every=2)
         if best is None or score > best[0]:
@@ -188,14 +194,14 @@ def _axis_matches():
             yield m
 
 
-def _icp(src, tree, dst, dst_n, t, rounds, start, end):
-    """Point-to-plane ICP over pairs closer than a threshold that shrinks from start to end.
-    Returns the pose and the share of src within end of dst."""
+def _icp(src, src_n, tree, dst, dst_n, t, rounds, start, end):
+    """Point-to-plane ICP over pairs closer than a threshold that shrinks from start to end,
+    facing the same way. Returns the pose and the share of src within end of dst."""
     for i in range(rounds):
         limit = start * (end / start) ** (i / max(rounds - 1, 1))
         p = src @ t[:3, :3].T + t[:3, 3]
         d, j = tree.query(p, workers=-1)
-        close = d < limit
+        close = (d < limit) & _facing(src_n @ t[:3, :3].T, dst_n[j])
         if close.sum() < 30:
             break
         q, n, p = dst[j[close]], dst_n[j[close]], p[close]
@@ -206,26 +212,38 @@ def _icp(src, tree, dst, dst_n, t, rounds, start, end):
         move[:3, :3] = Rotation.from_rotvec(step[:3]).as_matrix()
         move[:3, 3] = step[3:]
         t = move @ t
-    d, _ = tree.query(src @ t[:3, :3].T + t[:3, 3], workers=-1)
-    return t, float((d < end).mean())
+    return t, _overlap(src, src_n, tree, dst_n, t, end)
 
 
-def _refine(pb, nb, edge_b, pa, na, edge_a, tree_a, t, rounds=10):
+def _facing(n: np.ndarray, m: np.ndarray) -> np.ndarray:
+    """Pairs whose normals agree. A face lying on the back of another (a part's underside on
+    its floor, which is one wall thickness away) is not a match."""
+    return (n * m).sum(axis=1) > SAME_FACING
+
+
+def _overlap(src, src_n, tree, dst_n, t, within) -> float:
+    d, j = tree.query(src @ t[:3, :3].T + t[:3, 3], workers=-1)
+    return float(((d < within) & _facing(src_n @ t[:3, :3].T, dst_n[j])).mean())
+
+
+def _refine(pb, nb, edge_b, pa, na, edge_a, tree_a, t, rounds=15):
     """ICP both ways over every sample, with each scan's rim pinned point to point to the
     other scan. Where the overlap is all walls square to one direction, plane matching can't
     tell how far along it the scans sit; the rims (where each scan stopped seeing the part,
     usually at an edge the other scan carries round) can."""
     for i in range(rounds):
-        limit = 1.0 * (OVERLAP_MM / 1.0) ** (i / (rounds - 1))
+        # Starts wide: the coarse fit can leave the scans a few millimetres apart along
+        # walls, where nothing but the rims pulls them together.
+        limit = REFINE_REACH_MM * (OVERLAP_MM / REFINE_REACH_MM) ** (i / (rounds - 1))
         r = t[:3, :3]
         b, b_n, b_rim = pb @ r.T + t[:3, 3], nb @ r.T, edge_b @ r.T + t[:3, 3]
         tree_b = cKDTree(b)
         pairs = []
         d, j = tree_a.query(b, workers=-1)
-        c = d < limit
+        c = (d < limit) & _facing(b_n, na[j])
         pairs.append(_plane_rows(b[c], pa[j[c]], na[j[c]]))
         d, j = tree_b.query(pa, workers=-1)
-        c = d < limit
+        c = (d < limit) & _facing(na, b_n[j])
         pairs.append(_plane_rows(b[j[c]], pa[c], b_n[j[c]]))
         if len(b_rim):
             d, j = tree_a.query(b_rim, workers=-1)
@@ -243,8 +261,7 @@ def _refine(pb, nb, edge_b, pa, na, edge_a, tree_a, t, rounds=10):
         move[:3, :3] = Rotation.from_rotvec(step[:3]).as_matrix()
         move[:3, 3] = step[3:]
         t = move @ t
-    d, _ = tree_a.query(pb @ t[:3, :3].T + t[:3, 3], workers=-1)
-    return t, float((d < OVERLAP_MM).mean())
+    return t, _overlap(pb, nb, tree_a, na, t, OVERLAP_MM)
 
 
 def _plane_rows(p, q, n):
