@@ -37,7 +37,7 @@ MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 MAX_STORED_RESULTS = 50
 UNIT_SCALE = {"mm": 1.0, "cm": 10.0, "m": 1000.0, "in": 25.4}
 
-app = FastAPI(title="NURBSmith", version=__version__)
+app = FastAPI(title="MeshToMod", version=__version__)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],

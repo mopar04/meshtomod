@@ -1,4 +1,4 @@
-"""NURBSmith calibration part: every feature the converter handles (or should), on one print.
+"""MeshToMod calibration part: every feature the converter handles (or should), on one print.
 
 Prints flat with no supports, about 90 x 60 x 28 mm. Scan both sides, then convert and
 compare against the STEP this writes, feature by feature (see FEATURES).

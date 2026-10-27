@@ -5,7 +5,7 @@ _Last updated: 2026-10-25 (placement: lay on face, origin, up axis, trim flush)_
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
 - **M1 flat-faced parts:** segmentation, plane snapping, exact solid rebuild, confidence
-  metrics, deviation view, STEP download. AGPL-3.0, NURBSmith naming, UI reference notes.
+  metrics, deviation view, STEP download. AGPL-3.0, naming (now MeshToMod), UI reference notes.
 - **M2 mechanical features:**
   - Cylinder finding (`cylinders.py`): pairs of planar strips seed a cylinder fit, which is
     grown over triangles and refitted. Checks reject gentle curves that fit a plane, wide
