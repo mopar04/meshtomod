@@ -36,6 +36,87 @@ Use dedicated vCPUs if the host offers them: conversions are CPU-bound for minut
 4. Check: `https://meshtomod.com` loads, `https://meshtomod.com/api/health` answers, and a
    test part converts. `docker compose -f docker-compose.prod.yml logs -f api` shows errors.
 
+## DigitalOcean, step by step
+
+The pick for launch (prices read 2026-10-27): a **Basic droplet, Regular, 4 vCPU / 8 GB, $48/mo**,
+5 TB transfer included. Backups add 20% ($9.60/mo); the server holds nothing you can't rebuild
+from git and `.env`, so they're optional.
+
+### 1. In the DigitalOcean dashboard (about 10 minutes)
+
+1. **Create → Droplets.** Region: San Francisco (SFO3). Image: **Ubuntu 24.04 LTS**. Size: Basic,
+   Regular, **8 GB / 4 CPUs**. Authentication: **SSH key** (add your Mac's `~/.ssh/id_ed25519.pub`;
+   no password). Tick **Monitoring** (free). Hostname: `meshtomod-1`.
+2. **Networking → Firewalls → Create.** Inbound: SSH (TCP 22) from your IP only, HTTP (TCP 80)
+   and HTTPS (TCP 443) from anywhere, and a custom UDP 443 rule from anywhere (HTTP/3). Apply it
+   to `meshtomod-1`. Use this firewall rather than `ufw` on the server: Docker opens published
+   ports straight through `ufw`.
+3. **DNS** (wherever the domain lives; Cloudflare for nurbsmith.com): `A` records for the domain,
+   `www` and each redirect domain, pointing at the droplet's IPv4. On Cloudflare, set each to
+   **DNS only** (grey cloud).
+
+### 2. On the server (about 15 minutes)
+
+```sh
+# From your Mac: first login as root
+ssh root@DROPLET_IP
+
+# Your own user with sudo and your SSH key; then no more root logins
+adduser --disabled-password --gecos "" meshtomod
+usermod -aG sudo meshtomod
+passwd meshtomod                       # for sudo only; SSH stays key-only
+rsync -a ~/.ssh /home/meshtomod/ && chown -R meshtomod:meshtomod /home/meshtomod/.ssh
+sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+systemctl restart ssh
+exit
+```
+
+```sh
+ssh meshtomod@DROPLET_IP
+
+# 2 GB swap: headroom so a big scan slows down instead of the kernel killing things
+sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile
+sudo swapon /swapfile && echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# Docker Engine and Compose from Docker's own repository
+sudo apt-get update && sudo apt-get install -y ca-certificates curl git
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo usermod -aG docker meshtomod && newgrp docker
+
+# Ubuntu installs security updates on its own (unattended-upgrades); check it's on:
+systemctl is-enabled unattended-upgrades
+```
+
+### 3. Get the code and start it
+
+While the repo is private, the server needs a read-only deploy key (skip this once it's public):
+
+```sh
+ssh-keygen -t ed25519 -f ~/.ssh/meshtomod_deploy -N "" -C meshtomod-1
+cat ~/.ssh/meshtomod_deploy.pub
+# GitHub → repo → Settings → Deploy keys → Add key, paste it, leave "write access" OFF
+printf 'Host github.com\n  IdentityFile ~/.ssh/meshtomod_deploy\n' >> ~/.ssh/config
+git clone git@github.com:mopar04/nurbsmith.git meshtomod   # https://... once public
+```
+
+```sh
+cd meshtomod
+cp .env.example .env && nano .env     # domain, redirect domains, donate link
+docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml logs -f web   # watch Caddy get the certificates
+```
+
+Then open the site, convert a test part, and add an uptime check on `https://DOMAIN/api/health`
+(DigitalOcean → Monitoring → Uptime, or any free HTTPS monitor).
+
 ## Updating
 
 ```sh
