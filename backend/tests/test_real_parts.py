@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 import trimesh
 
-from nurbsmith.convert import convert
-from nurbsmith.tolerance import LEVELS
+from meshtomod.convert import convert
+from meshtomod.tolerance import LEVELS
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

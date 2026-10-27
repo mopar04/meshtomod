@@ -1,7 +1,7 @@
 import pytest
 
-from nurbsmith import fixtures
-from nurbsmith.mesh_io import MeshLoadError, load_mesh, summarize
+from meshtomod import fixtures
+from meshtomod.mesh_io import MeshLoadError, load_mesh, summarize
 
 
 @pytest.mark.parametrize("fmt", ["stl", "obj", "ply", "3mf"])

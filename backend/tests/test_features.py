@@ -2,11 +2,11 @@ import numpy as np
 import pytest
 import trimesh
 
-from nurbsmith import fixtures as fx
-from nurbsmith.convert import convert, repair
-from nurbsmith.features import STANDARD_HOLES, _snap_radius
-from nurbsmith.step_io import face_type_counts
-from nurbsmith.tolerance import LEVELS
+from meshtomod import fixtures as fx
+from meshtomod.convert import convert, repair
+from meshtomod.features import STANDARD_HOLES, _snap_radius
+from meshtomod.step_io import face_type_counts
+from meshtomod.tolerance import LEVELS
 
 # Part: (mesh, CAD truth, face types, features as (type, size) with size = diameter or radius)
 PARTS = {

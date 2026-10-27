@@ -243,8 +243,8 @@ def main(out: Path) -> None:
         for stem, shape in shapes.items():
             solid = shape.val() if isinstance(shape, cq.Workplane) else shape
             assert solid.isValid(), stem
-            cq.exporters.export(shape, str(out / f"nurbsmith_{stem}.step"))
-            stl = out / f"nurbsmith_{stem}.stl"
+            cq.exporters.export(shape, str(out / f"meshtomod_{stem}.step"))
+            stl = out / f"meshtomod_{stem}.stl"
             cq.exporters.export(shape, str(stl), tolerance=0.01, angularTolerance=0.05)
             # The exporter leaves a zero-area sliver at a sphere's pole; drop it.
             mesh = trimesh.load(stl)
@@ -256,7 +256,7 @@ def main(out: Path) -> None:
             bb = solid.BoundingBox()
             print(f"{stem}: {bb.xlen:.1f} x {bb.ylen:.1f} x {bb.zlen:.1f} mm, "
                   f"{solid.Volume() / 1000:.1f} cm3, solids {len(solid.Solids())}")  # fmt: skip
-        (out / f"nurbsmith_{name}.json").write_text(json.dumps(features, indent=2))
+        (out / f"meshtomod_{name}.json").write_text(json.dumps(features, indent=2))
 
 
 if __name__ == "__main__":

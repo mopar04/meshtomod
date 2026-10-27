@@ -2,10 +2,10 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from nurbsmith import fixtures
-from nurbsmith.api import app
-from nurbsmith.orient import anchor_offset, resting_faces, rotation_between, trim_flush
-from nurbsmith.step_io import face_type_counts, read_step
+from meshtomod import fixtures
+from meshtomod.api import app
+from meshtomod.orient import anchor_offset, resting_faces, rotation_between, trim_flush
+from meshtomod.step_io import face_type_counts, read_step
 
 client = TestClient(app)
 

@@ -1,10 +1,10 @@
 import pytest
 
-from nurbsmith import fixtures as fx
-from nurbsmith.convert import UnsupportedGeometry, convert
-from nurbsmith.quality import estimate_noise
-from nurbsmith.step_io import face_type_counts, read_step, write_step
-from nurbsmith.tolerance import LEVELS
+from meshtomod import fixtures as fx
+from meshtomod.convert import UnsupportedGeometry, convert
+from meshtomod.quality import estimate_noise
+from meshtomod.step_io import face_type_counts, read_step, write_step
+from meshtomod.tolerance import LEVELS
 
 PARTS = {
     "box": (fx.box, 6),

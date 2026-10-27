@@ -45,7 +45,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_results_dir = Path(tempfile.mkdtemp(prefix="nurbsmith-"))
+_results_dir = Path(tempfile.mkdtemp(prefix="meshtomod-"))
 _results: OrderedDict[str, Path] = OrderedDict()
 
 
