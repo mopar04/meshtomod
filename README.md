@@ -1,4 +1,4 @@
-# NURBSmith
+# MeshToMod
 
 Turn a scanned mesh (STL, OBJ, PLY, 3MF) into a clean, editable STEP solid built from real CAD
 geometry: planes, cylinders, cones, fillets, holes, and smooth freeform patches only where nothing

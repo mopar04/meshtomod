@@ -1,6 +1,6 @@
 # Technical plan
 
-Full version with diagram: [NURBSmith technical plan](https://claude.ai/artifact/LAaeiRK5iiGU7FMVsyvpKS)
+Full version with diagram: [MeshToMod (then NURBSmith) technical plan](https://claude.ai/artifact/LAaeiRK5iiGU7FMVsyvpKS)
 (Claude Doc). This file is the in-repo copy; keep both in step when the design changes.
 
 ## Approach

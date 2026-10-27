@@ -2,6 +2,13 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-27 (rename)
+- **The app is now called MeshToMod** (Zac). Domains: meshtomod.com is primary and
+  meshtomodel.com redirects to it (nurbsmith.com was bought earlier). The Python package,
+  code identifiers and the repo slug stay `nurbsmith` until Zac says otherwise. The
+  calibration part keeps its embossed "NURBSmith" text, since it's already printed and
+  scanned against that design.
+
 ## 2026-10-25 (placement)
 - **Lay-on-face candidates come from the convex hull, like OrcaSlicer** (Zac asked for Orca's
   familiar interface). Only faces the part rests on stably are offered. We reimplemented the
@@ -90,7 +97,7 @@ Newest first. One entry per choice a later session should not have to relitigate
 - **Open source under AGPL-3.0, with a donate link, no commercial plans** (Zac). This matches
   CNC Kitchen's tools and lets us reuse ScanRuler code with credit. Set the donate link with
   `VITE_DONATE_URL`. The repo stays private until Zac decides to make it public.
-- **Display name is "NURBSmith"** (NURB in capitals). Code identifiers stay `nurbsmith`.
+- **Display name was "NURBSmith"** (NURB in capitals; renamed MeshToMod on 2026-10-27). Code identifiers stay `nurbsmith`.
 - **UI follows BumpMesh and ScanRuler** (Zac): see `docs/UI_REFERENCES.md`.
 - **Never model scan noise.** Scan noise sets a floor on the fit tolerance (3.5 sigma). If the
   chosen level is tighter, we fit looser and warn, rather than chase artifacts. The fit score

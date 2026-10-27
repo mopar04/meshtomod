@@ -1,7 +1,7 @@
 # UI references
 
 Zac's direction (2026-10-23): copy the minimal but very functional interactivity of CNC Kitchen's
-browser tools. NURBSmith is AGPL-3.0 like ScanRuler, so we can reuse its code. Credit CNC
+browser tools. MeshToMod is AGPL-3.0 like ScanRuler, so we can reuse its code. Credit CNC
 Kitchen in the header of any file that does, and note it in DECISIONS.md.
 
 Sources: [bumpmesh.com](https://bumpmesh.com), [scanruler.com](https://scanruler.com/),
@@ -26,9 +26,9 @@ Sources: [bumpmesh.com](https://bumpmesh.com), [scanruler.com](https://scanruler
 - Any created element can be reopened and edited later. Every action can be undone.
 - Files stay in the browser. There's an optional local MCP helper so an AI agent can drive it.
 - A "Reverse Engineer" workspace (announced 2026-10-21) has an AI agent rebuild a scan as
-  parametric CAD. This overlaps with NURBSmith; see the plan's risks.
+  parametric CAD. This overlaps with MeshToMod; see the plan's risks.
 
-## What this means for NURBSmith
+## What this means for MeshToMod
 | Pattern | Where we use it |
 | --- | --- |
 | Drop file, no sign-up, instant viewer | Already in M0; keep it this way |

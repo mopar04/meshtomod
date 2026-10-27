@@ -1,4 +1,4 @@
-"""NURBSmith thin-wall test part: an open tray with walls of three thicknesses, a low
+"""MeshToMod thin-wall test part: an open tray with walls of three thicknesses, a low
 partition and a tube open at both ends.
 
 Prints open side up with no supports, about 80 x 60 x 24 mm. Every opening is shallower

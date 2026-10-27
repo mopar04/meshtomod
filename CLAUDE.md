@@ -53,7 +53,8 @@ npm run dev        # proxies /api to :8000 (override with API_URL)
 ```
 
 ## Conventions
-- Display name is **NURBSmith**; code identifiers are `nurbsmith`.
+- Display name is **MeshToMod** (site meshtomod.com; meshtomodel.com redirects to it). Code
+  identifiers, the Python package and the repo slug stay `nurbsmith` for now.
 - License is AGPL-3.0. Reusing CNC Kitchen's AGPL code (ScanRuler, BumpMesh) is fine with
   credit in the file header.
 - Units are millimetres internally. Inches are a display/input concern only.

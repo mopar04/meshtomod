@@ -205,7 +205,7 @@ export default function App() {
       }}
     >
       <aside className="panel">
-        <h1>NURBSmith</h1>
+        <h1>MeshToMod</h1>
         <p className="tagline">Scan in, editable STEP out.</p>
 
         <label className="button wide">

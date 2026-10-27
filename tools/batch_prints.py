@@ -1,4 +1,4 @@
-"""NURBSmith test prints for M2.5 to M5, designed to be printed in one batch.
+"""MeshToMod test prints for M2.5 to M5, designed to be printed in one batch.
 
 Each part has known dimensions (FEATURES, written to <name>.json beside the STL and STEP).
 All of them print with no supports on a 0.4 mm nozzle, and no opening is deeper than it is
