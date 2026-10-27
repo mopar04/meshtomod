@@ -25,7 +25,7 @@ Without Docker:
 
 ```sh
 cd backend && uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
-.venv/bin/uvicorn nurbsmith.api:app --reload      # API on :8000
+.venv/bin/uvicorn meshtomod.api:app --reload      # API on :8000
 cd ../frontend && npm install && npm run dev       # UI on :5173, proxies /api
 ```
 

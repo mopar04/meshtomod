@@ -28,8 +28,8 @@ import {
 import UnitsPrompt from "./UnitsPrompt";
 import Viewer, { type ViewMode } from "./Viewer";
 
-const UNITS_KEY = "nurbsmith.units";
-const UP_KEY = "nurbsmith.up";
+const UNITS_KEY = "meshtomod.units";
+const UP_KEY = "meshtomod.up";
 
 const ORIGINS: { key: Origin; label: string; hint: string }[] = [
   { key: "bottom", label: "Bottom", hint: "Centre of the base on the origin" },

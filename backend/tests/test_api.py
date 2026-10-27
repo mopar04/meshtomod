@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from nurbsmith import fixtures
-from nurbsmith.api import app
+from meshtomod import fixtures
+from meshtomod.api import app
 
 client = TestClient(app)
 

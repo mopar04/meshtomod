@@ -17,7 +17,7 @@ source of truth: read and update the docs below so any session can pick up the w
 - Technical build, logistics, roadblocks and ideas: Claude Code threads, via PRs to this repo.
 
 ## Layout
-- `backend/nurbsmith/`: Python geometry package and FastAPI app
+- `backend/meshtomod/`: Python geometry package and FastAPI app
   - `mesh_io.py` load and summarise meshes (trimesh)
   - `tolerance.py` accuracy level presets
   - `step_io.py` STEP read/write and face-type checks (CadQuery / OpenCASCADE)
@@ -43,7 +43,7 @@ cd backend
 uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
 .venv/bin/pytest -q
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
-.venv/bin/uvicorn nurbsmith.api:app --reload
+.venv/bin/uvicorn meshtomod.api:app --reload
 
 # frontend
 cd frontend
@@ -53,8 +53,9 @@ npm run dev        # proxies /api to :8000 (override with API_URL)
 ```
 
 ## Conventions
-- Display name is **MeshToMod** (site meshtomod.com; meshtomodel.com redirects to it). Code
-  identifiers, the Python package and the repo slug stay `nurbsmith` for now.
+- The name is **MeshToMod** everywhere: site meshtomod.com (meshtomodel.com redirects to it),
+  repo `mopar04/meshtomod`, Python package `meshtomod`. The old name NURBSmith only survives in
+  history and in the calibration part's embossed text.
 - License is AGPL-3.0. Reusing CNC Kitchen's AGPL code (ScanRuler, BumpMesh) is fine with
   credit in the file header.
 - Units are millimetres internally. Inches are a display/input concern only.

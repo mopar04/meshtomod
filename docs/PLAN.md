@@ -41,7 +41,7 @@ script from the recipe (M4).
 | Functional (default) | 0.3 mm | 2 mm | kept above 2 mm radius |
 | Precise | 0.1 mm | 0.5 mm | all kept |
 
-Defined in `backend/nurbsmith/tolerance.py`; users can override individual values.
+Defined in `backend/meshtomod/tolerance.py`; users can override individual values.
 
 ## Confidence metrics
 
