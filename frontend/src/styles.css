@@ -12,6 +12,7 @@ body { margin: 0; }
 .app { display: flex; height: 100vh; }
 .panel { width: 300px; padding: 16px; border-right: 1px solid var(--line); overflow-y: auto; display: flex; flex-direction: column; }
 .panel h1 { font-size: 18px; margin: 0; }
+.logo { display: block; height: 44px; width: auto; }
 .tagline { color: var(--muted); font-size: 13px; margin: 2px 0 16px; }
 .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 24px 0 8px; }
 .viewport { flex: 1; min-width: 0; position: relative; }
