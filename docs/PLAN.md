@@ -29,9 +29,9 @@ script from the recipe (M4).
 | Kernel and STEP | OpenCASCADE via CadQuery / OCP |
 | Mesh | trimesh, numpy, scipy (Open3D if needed) |
 | Fitting | region growing + RANSAC + least squares; OCC B-spline fitting for freeform |
-| API / jobs | FastAPI; Redis + RQ worker once conversions are long-running |
+| API / jobs | FastAPI; in-process job queue, one spawned process per conversion (`jobs.py`) |
 | Frontend | React, TypeScript, three.js via react-three-fiber |
-| Deploy | Docker Compose |
+| Deploy | Docker Compose; Caddy for HTTPS and the static app (`docs/DEPLOY.md`) |
 
 ## Tolerance levels
 

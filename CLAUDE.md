@@ -31,10 +31,13 @@ source of truth: read and update the docs below so any session can pick up the w
   - `convert.py` the pipeline: repair, quality, decimate, segment, cylinders, snap, rebuild,
     features, score
   - `fixtures.py` synthetic meshes with known answers, plus scanner-like noise
+  - `jobs.py` conversion jobs: queue, one spawned process per job, limits, result cleanup
+  - `config.py` server settings from `MESHTOMOD_*` environment variables
   - `api.py` HTTP API
 - `backend/tests/`: pytest suite
 - `frontend/`: React + TypeScript + three.js (react-three-fiber) viewer
-- `docker-compose.yml`: api on :8000, web on :5173
+- `docker-compose.yml`: api on :8000, web on :5173 (development)
+- `docker-compose.prod.yml`, `frontend/Caddyfile`, `.env.example`: production (`docs/DEPLOY.md`)
 
 ## Commands
 ```sh

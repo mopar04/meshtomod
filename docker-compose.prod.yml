@@ -1,0 +1,47 @@
+# Production: docker compose -f docker-compose.prod.yml up -d --build
+# Settings come from a .env file next to this one (copy .env.example). See docs/DEPLOY.md.
+services:
+  api:
+    build: ./backend
+    restart: unless-stopped
+    command: ["uvicorn", "nurbsmith.api:app", "--host", "0.0.0.0", "--port", "8000",
+              "--workers", "1", "--no-access-log"]
+    environment:
+      MESHTOMOD_CLIENT_IP_HEADER: X-Real-IP
+      MESHTOMOD_CORS_ORIGINS: ""          # same origin behind Caddy; no cross-site calls
+      MESHTOMOD_MAX_RUNNING_JOBS: ${MESHTOMOD_MAX_RUNNING_JOBS:-1}
+      MESHTOMOD_MAX_QUEUED_JOBS: ${MESHTOMOD_MAX_QUEUED_JOBS:-4}
+      MESHTOMOD_MAX_FACES: ${MESHTOMOD_MAX_FACES:-2500000}
+      MESHTOMOD_JOB_TIMEOUT_S: ${MESHTOMOD_JOB_TIMEOUT_S:-900}
+      MESHTOMOD_JOB_MEMORY_MB: ${MESHTOMOD_JOB_MEMORY_MB:-0}
+      MESHTOMOD_JOBS_PER_CLIENT_HOUR: ${MESHTOMOD_JOBS_PER_CLIENT_HOUR:-20}
+      MESHTOMOD_RESULT_TTL_MIN: ${MESHTOMOD_RESULT_TTL_MIN:-60}
+    volumes:
+      - results:/data
+    mem_limit: ${MESHTOMOD_API_MEMORY:-7g}
+    expose: ["8000"]                      # reachable only through Caddy
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_DONATE_URL: ${VITE_DONATE_URL:-}
+        VITE_SOURCE_URL: ${VITE_SOURCE_URL:-}
+    restart: unless-stopped
+    environment:
+      MESHTOMOD_DOMAIN: ${MESHTOMOD_DOMAIN:?set MESHTOMOD_DOMAIN in .env}
+      MESHTOMOD_REDIRECT_DOMAINS: ${MESHTOMOD_REDIRECT_DOMAINS:-www.localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data                  # certificates: keep this volume
+      - caddy_config:/config
+    depends_on: [api]
+
+volumes:
+  results:
+  caddy_data:
+  caddy_config:

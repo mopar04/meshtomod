@@ -2,6 +2,22 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-27 (production prep)
+- **Public hosting is the goal now** (Zac asked to push MeshToMod to production). Draft PR only
+  until he says merge; nothing is deployed or bought without his yes.
+- **Jobs without Redis.** An in-process queue in the API plus one spawned process per
+  conversion. A single server doesn't need RQ, a killed process frees its memory, and a timeout
+  can actually stop a job. Cost: a restart drops queued jobs, and the API must run as one
+  process. Move to Redis + RQ only if we need more than one API server.
+- **Spawn, not fork, for job processes.** OpenCASCADE and threads don't survive a fork.
+- **Keep nothing the user uploaded.** The scan is deleted when its job ends; results after
+  60 minutes. No access log. The privacy page states this and must stay true.
+- **Caddy in front** for HTTPS and the request size cap (multipart bodies are written to disk
+  before the API can check sizes). If DNS is on Cloudflare, records are DNS-only: its proxy
+  cuts requests at 100 s and uploads at 100 MB.
+- **Fair use per IP:** one job at a time and 20 per hour, queue of 4, 2.5M triangles max.
+  Starting values; tune once real traffic shows up.
+
 ## 2026-10-27 (rename)
 - **The app is now called MeshToMod** (Zac). Domains: meshtomod.com is primary and
   meshtomodel.com redirects to it (nurbsmith.com was bought earlier). The Python package,

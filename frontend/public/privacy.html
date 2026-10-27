@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy · MeshToMod</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <style>
+      body { margin: 0; background: #0f1115; color: #e6e8eb; font: 15px/1.6 system-ui, sans-serif; }
+      main { max-width: 680px; margin: 0 auto; padding: 32px 16px 64px; }
+      h1 { font-size: 24px; margin: 0 0 4px; }
+      h2 { font-size: 17px; margin: 28px 0 4px; }
+      a { color: #7fb0ff; }
+      .muted { color: #9aa3ad; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p><a href="/">← MeshToMod</a></p>
+      <h1>Privacy</h1>
+      <p class="muted">Last updated 2026-10-27</p>
+
+      <p>
+        MeshToMod turns a scan into a STEP file. It has no accounts, no ads, no analytics and no
+        cookies. Here is everything that happens to what you upload.
+      </p>
+
+      <h2>Your scan</h2>
+      <p>
+        When you open a mesh, the file is sent to our server to measure it and find the faces it
+        can rest on. Nothing is stored for that step. When you convert, the scan is stored only
+        while it waits and converts, and it is deleted as soon as the conversion finishes or fails.
+      </p>
+
+      <h2>Your results</h2>
+      <p>
+        The STEP file, the model preview and the deviation map (which contains the scan's shape)
+        are kept for one hour so you can download them, then deleted. They can only be reached
+        with the random link the app gets back; we don't list, share, sell or look at them, and we
+        never use them to train AI models.
+      </p>
+
+      <h2>Your address</h2>
+      <p>
+        To keep the free service fair, the server counts conversions per IP address. That count is
+        held in memory for up to an hour and is not written to disk. We don't keep access logs.
+      </p>
+
+      <h2>In your browser</h2>
+      <p>
+        The app remembers your units and up-axis choices in your browser's local storage. They never
+        leave your device.
+      </p>
+
+      <h2>Questions</h2>
+      <p>
+        MeshToMod is open source (<a href="https://github.com/mopar04/nurbsmith">source code</a>),
+        so you can check all of this, or run it on your own computer instead.
+      </p>
+    </main>
+  </body>
+</html>

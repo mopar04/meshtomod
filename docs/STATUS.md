@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-25 (placement: lay on face, origin, up axis, trim flush)_
+_Last updated: 2026-10-27 (production prep: jobs, limits, deploy)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -99,6 +99,27 @@ _Last updated: 2026-10-25 (placement: lay on face, origin, up axis, trim flush)_
   (cut bumps up to N mm below the base face). The STEP's base face is exactly level and on
   the origin. Tested on tilted CAD parts with and without noise; not yet on Zac's scans.
 
+## Production launch (started 2026-10-27, Zac: "push MeshToMod towards production")
+Done in the production-prep PR (draft until Zac says merge):
+- Background jobs (`jobs.py`): `POST /api/jobs` + poll `GET /api/jobs/{id}`; the UI polls and
+  shows its place in the queue. One conversion at a time (configurable), a short queue, each job
+  in a spawned process with a timeout; out-of-memory fails one job, not the server.
+  `/api/convert` still works (waits on the same queue).
+- Limits (`config.py`, `MESHTOMOD_*` env): upload size, triangle count, queue length, one job at
+  a time and 20 per hour per IP, results deleted after 60 min (also after a restart), uploaded
+  scans deleted when the job ends, CORS from env.
+- Production stack: `docker-compose.prod.yml`, Caddy (static app, HTTPS, `/api` proxy, 420 MB
+  body cap, security headers, redirect domains), non-root API container with a healthcheck, no
+  access log. Guide: `docs/DEPLOY.md`. CI validates the Caddyfile and builds both images.
+- Privacy page and a source link in the footer (AGPL).
+
+Still open before a public launch:
+- Zac: hosting provider and server (8 GB minimum), register meshtomod.com / meshtomodel.com
+  (only nurbsmith.com seen registered), make the repo public (AGPL source link), rename it.
+- Decide: refuse under 90% or return with a "partial" warning; keep `scanner_holder.stl` as a
+  public fixture; default units; donate URL; a contact address on the privacy page.
+- The UI has no way to add the second scan for merging (API only).
+
 ## Next (M2.5: real-scan readiness, agreed with Zac)
 - Thin walls: detect wall pairs, measure thickness, patch missing wall areas from it (bin).
 - Open and partial scans: close an open end with a plane; trim ragged rims.
@@ -107,7 +128,6 @@ _Last updated: 2026-10-25 (placement: lay on face, origin, up axis, trim flush)_
 - Top-only scans (no underside) are refused: unmodelled partial fillets and the boss add up
   past the 15% freeform limit. These belong with Thicken (M3).
 - Fewer spurious planes on warped real faces (RC stand gives about 1,000 faces).
-- Background jobs: a 2M-face scan takes 5 to 10 minutes.
 
 ## Known limits
 - Noise matrix (5 test parts × noise 0 / 0.02 / 0.1 / 0.3 mm × 3 levels): correct up to 0.1 mm
@@ -115,9 +135,8 @@ _Last updated: 2026-10-25 (placement: lay on face, origin, up axis, trim flush)_
   holed plate at 0.02 mm Rough finds 3 of 4 holes). At 0.3 mm noise results are poor; the
   guard catches some but not all. Zac's laser scans are 0.01 to 0.03 mm.
 - No cones, spheres, tori or freeform yet; chamfers come out as plain planes.
-- Conversion runs inside the request. Results are kept in a temp folder, last 50 only.
+- Jobs live in the API process: a restart drops queued and running jobs. One API process only.
 
 ## Open questions for Zac
 - Default units: mm or inches.
-- Local-only at first, or public hosting from day one.
 - Donate link URL.

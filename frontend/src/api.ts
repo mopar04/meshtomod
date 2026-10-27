@@ -112,20 +112,45 @@ export async function uploadMesh(file: File, units: Units) {
   );
 }
 
+interface JobStatus {
+  id: string;
+  status: "queued" | "running" | "done" | "failed";
+  /** Jobs ahead of this one while it waits. */
+  position?: number;
+  detail?: string;
+  result?: Conversion;
+}
+
+const POLL_MS = 1500;
+
+/** Queue a conversion and wait for it. Big scans take minutes, so the server runs them as
+ * jobs; onProgress hears "queued, 2 ahead" or "converting" while it waits. */
 export async function convertMesh(
   file: File,
   level: string,
   units: Units,
   place: PlacementOptions,
+  onProgress?: (message: string) => void,
 ) {
   const fields: Record<string, string> = { level, units, origin: place.origin, up: place.up };
   if (place.face) {
     fields.lay_flat = place.face.normal.join(",");
     fields.trim_flush = String(place.trimFlushMm);
   }
-  return json<Conversion>(
-    await fetch("/api/convert", { method: "POST", body: form(file, fields) }),
+  let job = await json<JobStatus>(
+    await fetch("/api/jobs", { method: "POST", body: form(file, fields) }),
   );
+  for (;;) {
+    if (job.status === "done" && job.result) return job.result;
+    if (job.status === "failed") throw new Error(job.detail ?? "Conversion failed");
+    onProgress?.(
+      job.status === "queued" && job.position
+        ? `Waiting for ${job.position} other scan${job.position > 1 ? "s" : ""} to finish…`
+        : `Converting ${file.name}…`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    job = await json<JobStatus>(await fetch(`/api/jobs/${job.id}`));
+  }
 }
 
 export async function fetchBuffer(url: string): Promise<ArrayBuffer> {
