@@ -4,10 +4,10 @@ import numpy as np
 import pytest
 import trimesh
 
-from nurbsmith import fixtures as fx
-from nurbsmith.convert import convert
-from nurbsmith.merge import MergeError, merge_scans
-from nurbsmith.tolerance import LEVELS
+from meshtomod import fixtures as fx
+from meshtomod.convert import convert
+from meshtomod.merge import MergeError, merge_scans
+from meshtomod.tolerance import LEVELS
 
 
 def scan(side: trimesh.Trimesh) -> trimesh.Trimesh:

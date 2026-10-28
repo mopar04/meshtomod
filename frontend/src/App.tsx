@@ -28,8 +28,8 @@ import {
 import UnitsPrompt from "./UnitsPrompt";
 import Viewer, { type ViewMode } from "./Viewer";
 
-const UNITS_KEY = "nurbsmith.units";
-const UP_KEY = "nurbsmith.up";
+const UNITS_KEY = "meshtomod.units";
+const UP_KEY = "meshtomod.up";
 
 const ORIGINS: { key: Origin; label: string; hint: string }[] = [
   { key: "bottom", label: "Bottom", hint: "Centre of the base on the origin" },
@@ -52,7 +52,7 @@ function storedUp(): UpAxis {
 const DONATE_URL = import.meta.env.VITE_DONATE_URL as string | undefined;
 // AGPL: people using the hosted app must be able to get its source.
 const SOURCE_URL =
-  (import.meta.env.VITE_SOURCE_URL as string | undefined) || "https://github.com/mopar04/nurbsmith";
+  (import.meta.env.VITE_SOURCE_URL as string | undefined) || "https://github.com/mopar04/meshtomod";
 
 function storedUnits(): Units | null {
   try {

@@ -75,10 +75,10 @@ def main(out: Path) -> None:
     part = build()
     solid = part.val()
     assert solid.isValid()
-    cq.exporters.export(part, str(out / "nurbsmith_thin_wall.step"))
-    cq.exporters.export(part, str(out / "nurbsmith_thin_wall.stl"), tolerance=0.01,
+    cq.exporters.export(part, str(out / "meshtomod_thin_wall.step"))
+    cq.exporters.export(part, str(out / "meshtomod_thin_wall.stl"), tolerance=0.01,
                         angularTolerance=0.05)  # fmt: skip
-    (out / "nurbsmith_thin_wall.json").write_text(json.dumps(FEATURES, indent=2))
+    (out / "meshtomod_thin_wall.json").write_text(json.dumps(FEATURES, indent=2))
     bb = solid.BoundingBox()
     print(
         f"size {bb.xlen:.1f} x {bb.ylen:.1f} x {bb.zlen:.1f} mm, volume {solid.Volume():.0f}"

@@ -18,6 +18,14 @@ Newest first. One entry per choice a later session should not have to relitigate
 - **Fair use per IP:** one job at a time and 20 per hour, queue of 4, 2.5M triangles max.
   Starting values; tune once real traffic shows up.
 
+## 2026-10-27 (rename, finished)
+- **Everything is renamed to MeshToMod** (Zac: "complete the renaming on GitHub"). The repo is
+  `mopar04/meshtomod`, the Python package is `meshtomod`, and the frontend package is
+  `meshtomod-web`. Test-print generators now write `meshtomod_*` files. Files already
+  delivered keep their `nurbsmith_*` names, and Zac's `Developer/Nurbsmith` folder is his and
+  stays as it is. The browser settings keys moved to `meshtomod.*`, so a saved units choice
+  is asked once more. This replaces the "stay `nurbsmith`" part of the entry below.
+
 ## 2026-10-27 (rename)
 - **The app is now called MeshToMod** (Zac). Domains: meshtomod.com is primary and
   meshtomodel.com redirects to it (nurbsmith.com was bought earlier). The Python package,

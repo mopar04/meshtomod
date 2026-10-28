@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from nurbsmith import fixtures as fx
-from nurbsmith.convert import convert
-from nurbsmith.tolerance import LEVELS
+from meshtomod import fixtures as fx
+from meshtomod.convert import convert
+from meshtomod.tolerance import LEVELS
 
 TOOL = Path(__file__).parents[2] / "tools" / "calibration_part.py"
 

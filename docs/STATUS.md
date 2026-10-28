@@ -5,7 +5,7 @@ _Last updated: 2026-10-27 (production prep: jobs, limits, deploy)_
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
 - **M1 flat-faced parts:** segmentation, plane snapping, exact solid rebuild, confidence
-  metrics, deviation view, STEP download. AGPL-3.0, naming (now MeshToMod), UI reference notes.
+  metrics, deviation view, STEP download. AGPL-3.0, naming (MeshToMod: repo, package and app renamed 2026-10-27), UI reference notes.
 - **M2 mechanical features:**
   - Cylinder finding (`cylinders.py`): pairs of planar strips seed a cylinder fit, which is
     grown over triangles and refitted. Checks reject gentle curves that fit a plane, wide
@@ -100,7 +100,12 @@ _Last updated: 2026-10-27 (production prep: jobs, limits, deploy)_
   the origin. Tested on tilted CAD parts with and without noise; not yet on Zac's scans.
 
 ## Production launch (started 2026-10-27, Zac: "push MeshToMod towards production")
-Done in the production-prep PR (draft until Zac says merge):
+Where the work happens: production work is done from Zac's Claude Duet chat, in PR #11
+(branch `claude/project-thread-9iwv7n`, draft until Zac says merge). Sessions in the Mesh to Mod
+project: read that PR and this section before touching jobs, limits, deploy files or the
+privacy page, and leave notes here or on the PR rather than starting parallel production work.
+
+Done in PR #11:
 - Background jobs (`jobs.py`): `POST /api/jobs` + poll `GET /api/jobs/{id}`; the UI polls and
   shows its place in the queue. One conversion at a time (configurable), a short queue, each job
   in a spawned process with a timeout; out-of-memory fails one job, not the server.
@@ -114,8 +119,10 @@ Done in the production-prep PR (draft until Zac says merge):
 - Privacy page and a source link in the footer (AGPL).
 
 Still open before a public launch:
-- Zac: hosting provider and server (8 GB minimum), register meshtomod.com / meshtomodel.com
-  (only nurbsmith.com seen registered), make the repo public (AGPL source link), rename it.
+- Done: repo renamed to `mopar04/meshtomod` and public; meshtomod.com and meshtomodel.com
+  registered on Cloudflare.
+- Zac: sign up for hosting. Recommended DigitalOcean Basic 4 vCPU / 8 GB, $48/mo (steps in
+  `docs/DEPLOY.md`); then point DNS (DNS only) and deploy.
 - Decide: refuse under 90% or return with a "partial" warning; keep `scanner_holder.stl` as a
   public fixture; default units; donate URL; a contact address on the privacy page.
 - The UI has no way to add the second scan for merging (API only).

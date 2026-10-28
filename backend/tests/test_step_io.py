@@ -1,7 +1,7 @@
 import cadquery as cq
 import pytest
 
-from nurbsmith.step_io import face_type_counts, read_step, write_step
+from meshtomod.step_io import face_type_counts, read_step, write_step
 
 
 def test_step_round_trip_keeps_analytic_faces(tmp_path):

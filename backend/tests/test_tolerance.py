@@ -1,6 +1,6 @@
 import pytest
 
-from nurbsmith.tolerance import DEFAULT_LEVEL, LEVELS, get_level
+from meshtomod.tolerance import DEFAULT_LEVEL, LEVELS, get_level
 
 
 def test_levels_tighten_monotonically():

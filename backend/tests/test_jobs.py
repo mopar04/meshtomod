@@ -4,9 +4,9 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from nurbsmith import api, fixtures
-from nurbsmith.config import Settings
-from nurbsmith.jobs import Busy, Job, JobManager, RateLimited
+from meshtomod import api, fixtures
+from meshtomod.config import Settings
+from meshtomod.jobs import Busy, Job, JobManager, RateLimited
 
 client = TestClient(api.app)
 

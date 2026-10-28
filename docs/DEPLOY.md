@@ -29,7 +29,7 @@ Use dedicated vCPUs if the host offers them: conversions are CPU-bound for minut
 2. Open ports 80 and 443 (TCP) and 443 (UDP). Nothing else needs to be public.
 3. On the server:
    ```sh
-   git clone https://github.com/mopar04/nurbsmith.git && cd nurbsmith
+   git clone https://github.com/mopar04/meshtomod.git && cd meshtomod
    cp .env.example .env        # then edit: domain, redirects, donate link, sizing
    docker compose -f docker-compose.prod.yml up -d --build
    ```
@@ -51,7 +51,7 @@ from git and `.env`, so they're optional.
    and HTTPS (TCP 443) from anywhere, and a custom UDP 443 rule from anywhere (HTTP/3). Apply it
    to `meshtomod-1`. Use this firewall rather than `ufw` on the server: Docker opens published
    ports straight through `ufw`.
-3. **DNS** (wherever the domain lives; Cloudflare for nurbsmith.com): `A` records for the domain,
+3. **DNS** (the domains are on Cloudflare): `A` records for the domain,
    `www` and each redirect domain, pointing at the droplet's IPv4. On Cloudflare, set each to
    **DNS only** (grey cloud).
 
@@ -97,14 +97,10 @@ systemctl is-enabled unattended-upgrades
 
 ### 3. Get the code and start it
 
-While the repo is private, the server needs a read-only deploy key (skip this once it's public):
+The repo is public, so a plain HTTPS clone works:
 
 ```sh
-ssh-keygen -t ed25519 -f ~/.ssh/meshtomod_deploy -N "" -C meshtomod-1
-cat ~/.ssh/meshtomod_deploy.pub
-# GitHub → repo → Settings → Deploy keys → Add key, paste it, leave "write access" OFF
-printf 'Host github.com\n  IdentityFile ~/.ssh/meshtomod_deploy\n' >> ~/.ssh/config
-git clone git@github.com:mopar04/nurbsmith.git meshtomod   # https://... once public
+git clone https://github.com/mopar04/meshtomod.git
 ```
 
 ```sh
@@ -129,7 +125,7 @@ results survive on the `results` volume until they expire.
 ## Settings
 
 All in `.env` (see `.env.example`); the API reads `MESHTOMOD_*` variables
-(`backend/nurbsmith/config.py`).
+(`backend/meshtomod/config.py`).
 
 | Variable | Default | What it does |
 | --- | --- | --- |
