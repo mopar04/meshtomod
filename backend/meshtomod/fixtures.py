@@ -284,14 +284,13 @@ def freeform_top_cad():
     return cq.Workplane().add(cq.Solid.makeLoft(sections, False))
 
 
-def _height_field(fn, x: tuple[float, float], y: tuple[float, float], sweep: float, n: int = 41):
-    """The solid swept from the B-spline surface through z = fn(x, y) (sampled on an n x n
-    grid over the x and y ranges) by sweep along Z: down for a negative sweep."""
+def _height_face(fn, x: tuple[float, float], y: tuple[float, float], n: int = 41):
+    """The B-spline face through z = fn(x, y), sampled on an n x n grid over the x and y
+    ranges, facing up."""
     import cadquery as cq
     from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace
-    from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism
     from OCP.GeomAPI import GeomAPI_PointsToBSplineSurface
-    from OCP.gp import gp_Pnt, gp_Vec
+    from OCP.gp import gp_Pnt
     from OCP.TColgp import TColgp_Array2OfPnt
 
     grid = TColgp_Array2OfPnt(1, n, 1, n)
@@ -301,9 +300,19 @@ def _height_field(fn, x: tuple[float, float], y: tuple[float, float], sweep: flo
             py = y[0] + (y[1] - y[0]) * j / (n - 1)
             grid.SetValue(i + 1, j + 1, gp_Pnt(px, py, fn(px, py)))
     surface = GeomAPI_PointsToBSplineSurface(grid, 3, 3).Surface()
-    face = BRepBuilderAPI_MakeFace(surface, 1e-6).Face()
+    return cq.Face(BRepBuilderAPI_MakeFace(surface, 1e-6).Face())
+
+
+def _height_field(fn, x: tuple[float, float], y: tuple[float, float], sweep: float, n: int = 41):
+    """The solid swept from the B-spline surface through z = fn(x, y) (sampled on an n x n
+    grid over the x and y ranges) by sweep along Z: down for a negative sweep."""
+    import cadquery as cq
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism
+    from OCP.gp import gp_Vec
+
+    face = _height_face(fn, x, y, n)
     return cq.Workplane().add(
-        cq.Shape.cast(BRepPrimAPI_MakePrism(face, gp_Vec(0, 0, sweep)).Shape())
+        cq.Shape.cast(BRepPrimAPI_MakePrism(face.wrapped, gp_Vec(0, 0, sweep)).Shape())
     )
 
 
@@ -355,3 +364,95 @@ def freeform_bump_plate() -> trimesh.Trimesh:
 
 def freeform_recess_block() -> trimesh.Trimesh:
     return from_cad(freeform_recess_block_cad(), angular=FREEFORM_ANGULAR)
+
+
+# ---------------------------------------------------------------------------------------------
+# One-sided scans (skins): only the outside of a thin part, as an open sheet of triangles.
+# ---------------------------------------------------------------------------------------------
+
+
+def wave_wall_cad():
+    """A 2 mm wall bent into an S, 70 mm long and 40 mm tall (the batch print): its centre line
+    is y = 12 sin(pi x / 35), and each side is that line moved 1 mm along its normal."""
+    import math
+
+    import cadquery as cq
+
+    xs = [-35 + 70 * i / 40 for i in range(41)]
+    sides: tuple[list, list] = ([], [])
+    for x in xs:
+        y = 12 * math.sin(math.pi * x / 35)
+        slope = 12 * math.pi / 35 * math.cos(math.pi * x / 35)
+        n = math.hypot(1, slope)
+        for side, sign in zip(sides, (1, -1), strict=True):
+            side.append((x - sign * slope / n, y + sign / n))
+    outline = (
+        cq.Workplane("XY").moveTo(*sides[0][0]).spline(sides[0][1:], includeCurrent=True)
+        .lineTo(*sides[1][-1]).spline(sides[1][-2::-1], includeCurrent=True).close()
+    )  # fmt: skip
+    return outline.extrude(40.0)
+
+
+def wave_skin_face():
+    """The wave wall's outside face (on the +y side of its centre line)."""
+    wall = wave_wall_cad().val()
+    return max(wall.Faces(), key=lambda f: f.Area() * (f.Center().y > 0))
+
+
+def _cap(x: float, y: float) -> float:
+    # A lopsided dome, like a helmet shell or a car panel: curved both ways, steepest (about
+    # 50 degrees) at its rim.
+    return 14 - x * x / 70 - y * y / 40 + 0.05 * x
+
+
+CAP_AXES = (34.0, 22.0)
+
+
+def cap_skin_face():
+    """The dome's surface inside an ellipse 68 x 44 mm (seen from above): its outside, facing
+    up."""
+    import cadquery as cq
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
+
+    surface = _height_face(_cap, (-40, 40), (-28, 28))
+    column = cq.Workplane("XY").ellipse(*CAP_AXES).extrude(60, both=True).val()
+    return cq.Shape.cast(BRepAlgoAPI_Common(surface.wrapped, column.wrapped).Shape()).Faces()[0]
+
+
+def skin_mesh(face) -> trimesh.Trimesh:
+    """A face tessellated into an open sheet, its triangles facing the way the face does."""
+    mesh = from_cad(face, angular=FREEFORM_ANGULAR)
+    if (mesh.face_normals @ np.array(face.normalAt().toTuple())).sum() < 0:
+        mesh.invert()
+    return mesh
+
+
+def wave_skin() -> trimesh.Trimesh:
+    return skin_mesh(wave_skin_face())
+
+
+def cap_skin() -> trimesh.Trimesh:
+    return skin_mesh(cap_skin_face())
+
+
+def ragged(mesh: trimesh.Trimesh, depth: float, seed: int = 0) -> trimesh.Trimesh:
+    """Tear the border of a sheet like a scan's: triangles near it are dropped where a random,
+    wavy band of up to depth mm from the border reaches."""
+    rng = np.random.default_rng(seed)
+    from scipy.spatial import cKDTree
+
+    edges = mesh.edges_sorted
+    _, index, counts = np.unique(edges, axis=0, return_index=True, return_counts=True)
+    border = np.unique(edges[index[counts == 1]])
+    tree = cKDTree(mesh.vertices[border])
+    centres = mesh.triangles_center
+    dist, nearest = tree.query(centres)
+    # The band's depth varies along the border, with bumps a few mm apart.
+    phase = rng.uniform(0, 2 * np.pi, 3)
+    p = mesh.vertices[border][nearest]
+    wave = sum(np.sin(p[:, k % 3] * (0.7 + 0.4 * k) + phase[k]) for k in range(3)) / 3
+    reach = depth * (0.5 + 0.5 * wave) * rng.uniform(0.6, 1.0, len(centres))
+    out = mesh.copy()
+    out.update_faces(dist > reach)
+    out.remove_unreferenced_vertices()
+    return out

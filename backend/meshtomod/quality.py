@@ -122,6 +122,9 @@ def _patch_noise(patches: list[np.ndarray]) -> float:
     return float(np.quantile(rms, NOISE_QUANTILE) / calibration)
 
 
+GAP_WARNING = "The scan has gaps ({} open edges); they will be closed by the model."
+
+
 def scan_quality(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ScanQuality:
     noise = estimate_noise(mesh)
     open_edges = int(len(trimesh.grouping.group_rows(mesh.edges_sorted, require_count=1)))
@@ -145,7 +148,7 @@ def scan_quality(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ScanQuality:
             f"{suggested.label} is the tightest level this scan supports."
         )
     if open_edges:
-        gap = f"The scan has gaps ({open_edges} open edges); they will be closed by the model."
+        gap = GAP_WARNING.format(open_edges)
         warning = f"{warning} {gap}" if warning else gap
     loose = int(mesh.metadata.get("loose_pieces", 0))
     if loose:

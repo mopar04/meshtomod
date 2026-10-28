@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-28 (M3b freeform surfaces)_
+_Last updated: 2026-10-28 (M3d thicken skin)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -56,6 +56,19 @@ _Last updated: 2026-10-28 (M3b freeform surfaces)_
   tried on Zac's freeform print scan. Limits: one height field per area (a fully rounded
   body like the smoke detector or bottle is still refused); a hole or boss in a freeform
   face isn't modelled yet.
+
+- **M3d thicken skin** (`thicken.py`): a scan that is one smooth open sheet (one side of
+  something, like the wave skin print) is fitted as one B-spline surface inside a smoothed
+  outline of its torn border, and thickened into a wall: 3 mm by default, behind the scanned
+  surface, on its scanned side, or centred on it, with square, chamfered (t/3) or rounded
+  edges. On a gently curved wave and a dome, designs and dense noisy copies (0.05 mm, a torn
+  border up to 1.5 mm deep, turned to an odd angle), the wall comes back as three B-spline
+  faces (five with a chamfer or round), within 0.004 mm of the drawn volume per mm² on the
+  designs and 2% on the noisy copies, and over 99.5% of the scan within 0.3 mm. Takes 7 to 10 s
+  (about 1.5 to 2.5 minutes with rounded edges). A wall too thick for the curve is refused.
+  The options are in the code but not yet in the API or viewer (after the production PR); for
+  now every skin gets the defaults and a note saying so. Not yet tried on Zac's wave skin
+  scan.
 
 ## Real scans tried (Zac's, in `Developer/Nurbsmith/Test Scans`)
 - Scale checks out: tape roll 92.5/76.8/48.5 vs 93/76/48.5; cap 102.2–102.8 vs 102.
@@ -133,7 +146,8 @@ _Last updated: 2026-10-28 (M3b freeform surfaces)_
 - Merge: try the cap's front and back; check the merged calibration scan's misses (the 3.4
   mm hole, fillets and chamfers that don't apply on the scan).
 - Top-only scans (no underside) are refused: unmodelled partial fillets and the boss add up
-  past the 15% freeform limit. These belong with Thicken (M3).
+  past the 15% freeform limit. Thicken (M3d) only takes smooth sheets, not these: a blocky
+  part's top half isn't one height field, so it still needs the other side or a closing face.
 - Fewer spurious planes on warped real faces (RC stand gives about 1,000 faces).
 - Background jobs: a 2M-face scan takes 5 to 10 minutes.
 
@@ -145,6 +159,8 @@ _Last updated: 2026-10-28 (M3b freeform surfaces)_
 - Freeform areas must each be a height field (seen whole from one side). A cone, sphere or
   torus is only modelled as part of a shape turned about an axis (not, say, a ball-end fillet
   along a straight edge).
+- A skin is one height-field sheet with one outline: no holes in it, and its corners round
+  off by about the smallest feature size. Rounded edges are slow (fillets on B-splines).
 - Conversion runs inside the request. Results are kept in a temp folder, last 50 only.
 
 ## Open questions for Zac

@@ -526,6 +526,11 @@ function describe(f: Feature): string {
       if (f.form === "recess") return `Freeform scoop, ${mm(f.depth_mm!)} deep (${area})`;
       return `Freeform surface (${area})`;
     }
+    case "skin": {
+      const side = { in: "inward", out: "outward", centred: "centred" }[f.direction!];
+      const edge = { square: "square", chamfer: "chamfered", round: "rounded" }[f.edge!];
+      return `One-sided scan thickened ${side} into a ${mm(f.thickness_mm!)} wall, ${edge} edges`;
+    }
     default:
       return `Hole ${d(f.diameter_mm!)}${std}, ${depth}`;
   }
