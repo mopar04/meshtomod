@@ -520,6 +520,12 @@ function describe(f: Feature): string {
       return `Turned boss ${d(f.diameter_mm!)}, ${mm(f.height_mm!)} tall`;
     case "revolved_cut":
       return `Turned recess ${d(f.diameter_mm!)}, ${depth}`;
+    case "freeform": {
+      const area = `${Math.round(f.area_mm2!).toLocaleString()} mm\u00b2`;
+      if (f.form === "bump") return `Freeform mound, ${mm(f.height_mm!)} tall (${area})`;
+      if (f.form === "recess") return `Freeform scoop, ${mm(f.depth_mm!)} deep (${area})`;
+      return `Freeform surface (${area})`;
+    }
     default:
       return `Hole ${d(f.diameter_mm!)}${std}, ${depth}`;
   }

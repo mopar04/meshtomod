@@ -182,10 +182,12 @@ def check_supported(
     total = sum(r.area for r in regions) + curved_total
     if area > FREEFORM_SHARE * total:
         raise UnsupportedGeometry(
-            "This part is largely made of curved surfaces other than holes, round bosses and "
-            "fillets (like a domed or sculpted panel). Freeform surfaces are the next "
-            "milestone."
+            "This part is largely made of curved surfaces this version can't rebuild yet. "
+            "Freeform areas work when each can be seen whole from one side, like a curved "
+            "top, a mound or a scoop; a fully rounded body doesn't yet."
         )
+    if area < 0.005 * total:
+        return None  # a stray facet or two along an edge; not worth a note
     return (
         f"About {100 * area / total:.0f}% of the surface is gently curved and was approximated "
         "with flat faces."

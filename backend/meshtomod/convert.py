@@ -1,5 +1,5 @@
-"""Mesh to STEP conversion pipeline: flat faces (M1), holes, bosses and fillets (M2), and
-cones, spheres and tori (M3)."""
+"""Mesh to STEP conversion pipeline: flat faces (M1), holes, bosses and fillets (M2), cones,
+spheres and tori (M3a), and freeform surfaces (M3b)."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from .brep import (
 from .cells import Corner, cell_solid
 from .cylinders import consolidate, find_cylinders, planes_around, shared_lengths
 from .features import EDGE_KINDS, Feature, apply_features, cylinder_between, plan_features
+from .freeform import Freeform, find_freeform
 from .quality import FitScore, ScanQuality, deviations, fit_score, scan_quality
 from .revolve import Revolved, find_revolved
 from .segment import Geo, Region, segment_planes
@@ -39,6 +40,8 @@ MIN_WORKING_FACES = 5_000
 COARSE_DIVISIONS = 150
 DECIMATION_AGGRESSION = 4
 DECIMATION_PASSES = 6
+# Solids under this share of the part's volume after adding or cutting a freeform surface.
+SPECK_SHARE = 1e-6
 
 
 @dataclass
@@ -56,6 +59,8 @@ class ConversionResult:
     """Approximations made, for the user to know about."""
     revolved: list[Revolved] = field(default_factory=list)
     """Cones, spheres and tori: the whole part if it is turned, or features on its faces."""
+    freeform: list[Freeform] = field(default_factory=list)
+    """B-spline surfaces: a whole curved side of the part, or a mound or scoop on a face."""
 
     def report(self) -> dict:
         bb = self.solid.BoundingBox()
@@ -67,6 +72,7 @@ class ConversionResult:
             "scan_quality": self.scan.as_dict(),
             "fit": self.fit.as_dict(),
             "features": [r.as_dict() for r in self.revolved]
+            + [f.as_dict() for f in self.freeform]
             + [f.as_dict() for f in self.features if f.kind != "sharp"],
             "notes": self.notes,
         }
@@ -196,8 +202,11 @@ def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
     revolved, features, planes, patches, labels = take_revolved(
         work, planes, patches, labels, features, working, scan.noise_mm
     )
-    if revolved:
-        # The curved areas it listed are mostly what the turned shapes took.
+    freeform, features, planes, patches, labels = take_freeform(
+        work, planes, patches, labels, features, working
+    )
+    if revolved or freeform:
+        # The curved areas it listed are mostly what the turned shapes and freeform took.
         _, _, skipped = plan_features(work, planes, patches, shared_lengths(work, labels), working)
     modelled = {f.patch for f in features}
     patch_area = {p.id: float(work.area_faces[p.faces].sum()) for p in patches}
@@ -206,7 +215,8 @@ def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
         working,
         unmodelled=sum(a for pid, a in patch_area.items() if pid not in modelled),
         curved_total=sum(patch_area.values())
-        + sum(float(work.area_faces[r.faces].sum()) for r in revolved),
+        + sum(float(work.area_faces[r.faces].sum()) for r in revolved)
+        + sum(f.area_mm2 for f in freeform),
     )
     base_planes = [r for r in planes if r.id not in caps]
     other_side = {
@@ -231,6 +241,9 @@ def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
     adds = [(r.kind, r.add) for r in revolved if r.add is not None and r.kind != "turned"]
     cuts = [(r.kind, r.cut) for r in revolved if r.cut is not None]
     try:
+        if any(f.form == "surface" for f in freeform):
+            # A whole curved side: the planes alone don't close, so start from blocks.
+            raise UnsupportedGeometry("freeform side")
         if turned and not base_planes:
             base = turned[0] if len(turned) == 1 else cq.Compound.makeCompound(turned)
             turned = []
@@ -273,10 +286,18 @@ def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
         # (a dome) are added later.
         for r in revolved:
             fixed += [(r.faces[r.inside], True), (r.faces[~r.inside], False)]
+        ignore = np.concatenate([f.faces for f in freeform]) if freeform else None
         base = cell_solid(
-            work, base_planes, working.fit_tolerance_mm, working.min_feature_mm, corners, fixed
+            work,
+            base_planes,
+            working.fit_tolerance_mm,
+            working.min_feature_mm,
+            corners,
+            fixed,
+            ignore,
         )
     adds = [("turned", t) for t in turned] + adds
+    base = apply_freeform(base, freeform)
     solid, failed = apply_features(base, features, planes, adds, cuts)
     dist = deviations(mesh, solid, working.fit_tolerance_mm)
     # Never hand back a model that plainly is not the part.
@@ -296,6 +317,7 @@ def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
         features,
         [n for n in (note, skipped, failed) if n],
         revolved,
+        freeform,
     )
 
 
@@ -332,3 +354,54 @@ def take_revolved(
     for k, r in enumerate(revolved):
         labels[r.faces] = top + 1 + k
     return revolved, features, planes, patches, labels
+
+
+def take_freeform(
+    work: Geo,
+    planes: list[Region],
+    patches: list,
+    labels: np.ndarray,
+    features: list[Feature],
+    level: ToleranceLevel,
+) -> tuple[list[Freeform], list[Feature], list[Region], list, np.ndarray]:
+    """Fit freeform surfaces to the curved areas left over (facets, and patches no feature
+    took), and take what they cover out of the other rules' hands, as take_revolved does."""
+    modelled = {f.patch for f in features if f.kind != "sharp"}
+    modelled |= {i for f in features for i in f.also}
+    seeds = curved_regions(planes, level) | {p.id for p in patches if p.id not in modelled}
+    freeform = find_freeform(work, planes, patches, labels, seeds, level)
+    if not freeform:
+        return freeform, features, planes, patches, labels
+    used = set().union(*(f.labels for f in freeform))
+    features = [f for f in features if f.patch not in used and not ({*f.also, *f.planes} & used)]
+    planes = [r for r in planes if r.id not in used]
+    patches = [p for p in patches if p.id not in used]
+    # A flat face can give up the faces it took from the curve beside it.
+    taken = np.concatenate([f.faces for f in freeform])
+    for r in planes:
+        kept = r.faces[~np.isin(r.faces, taken)]
+        if len(kept) < len(r.faces):
+            r.faces = kept
+            r.area = float(work.area_faces[kept].sum())
+    planes = [r for r in planes if len(r.faces)]
+    for x in [*planes, *patches]:
+        x.neighbours -= used
+    labels = labels.copy()
+    top = max(int(labels.max()), *(r.id for r in planes), *(p.id for p in patches), 0)
+    for k, f in enumerate(freeform):
+        labels[f.faces] = top + 1 + k
+    return freeform, features, planes, patches, labels
+
+
+def apply_freeform(base: cq.Shape, freeform: list[Freeform]) -> cq.Shape:
+    """Mounds are added and scoops and curved sides cut, before the other features: a fillet
+    or hole on the part then sees the finished faces."""
+    for f in freeform:
+        bodies = len(base.Solids())
+        result = base.fuse(f.add).clean() if f.add is not None else base.cut(f.cut).clean()
+        # Where the surface leaves a face at a shallow angle, a speck can be left over.
+        parts = [p for p in result.Solids() if p.Volume() > SPECK_SHARE * base.Volume()]
+        if len(parts) != bodies or not all(p.isValid() for p in parts):
+            raise UnsupportedGeometry("A freeform surface could not be joined to the part.")
+        base = parts[0] if bodies == 1 else cq.Compound.makeCompound(parts)
+    return base

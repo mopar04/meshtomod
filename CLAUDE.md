@@ -25,6 +25,8 @@ source of truth: read and update the docs below so any session can pick up the w
   - `brep.py` plane snapping, freeform check, exact solid rebuild from plane intersections
   - `cylinders.py` cylinder fitting: strips of planes grown into hole/boss/fillet patches
   - `features.py` patches to CAD features (hole, boss, fillet, round body), standard sizes
+  - `revolve.py` shapes turned about an axis (cones, spheres, tori) fitted as a 2D profile
+  - `freeform.py` other smooth curved areas as B-spline height fields (curved top, mound, scoop)
   - `cells.py` fallback solid from plane-cut blocks, for scans with gaps and warps
   - `quality.py` scan noise estimate, fit score, deviation colours
   - `orient.py` placement before export: lay on face, true up, trim flush, origin, up axis
