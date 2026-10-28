@@ -287,11 +287,14 @@ def fit_surface(
     margin: float,
     rng: np.random.Generator,
     spans: tuple[int, int] | None = None,
+    lookahead: int = 1,
 ) -> Fit | None:
     """Fit a surface to the points, or None if none fits within tol (FIT_SHARE of them).
 
     Without spans given, tries more and more and keeps the first that fits once more spans
-    stop helping much (the rest is scan noise): enough to follow the shape, no more."""
+    stop helping much (the rest is scan noise): enough to follow the shape, no more. That is
+    judged over lookahead more steps: a count of spans that happens to put knots where the
+    shape bends least can fit worse than one fewer, and the next count well again."""
     local = frame.local(points)
     lo, hi = local[:, :2].min(axis=0) - margin, local[:, :2].max(axis=0) + margin
     bounds = (lo[0], hi[0], lo[1], hi[1])
@@ -317,13 +320,17 @@ def fit_surface(
         fit = attempt(spans)
         return fit if fit.within >= FIT_SHARE else None
     chosen = None
+    misses = 0
     for long in SPAN_STEPS:
         ratio = size / size.max()
         fit = attempt(tuple(max(1, int(round(long * r))) for r in ratio))
         if chosen is not None:
             if fit.rms > NOISE_FLOOR * chosen.rms:
-                return chosen
-            chosen = fit
+                misses += 1
+                if misses == lookahead:
+                    return chosen
+                continue
+            chosen, misses = fit, 0
         elif fit.within >= FIT_SHARE:
             chosen = fit
         if chosen is not None and chosen.rms <= GOOD_RMS_TOLS * tol:
@@ -804,13 +811,16 @@ def _crosses(ring: np.ndarray) -> bool:
 
 
 def _contains(ring: np.ndarray, pts: np.ndarray) -> np.ndarray:
-    """Points inside a closed polygon (ray casting)."""
-    x, y = pts[:, 0][:, None], pts[:, 1][:, None]
-    a, b = ring, np.roll(ring, -1, axis=0)
-    cross = (a[:, 1] > y) != (b[:, 1] > y)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        at = a[:, 0] + (y - a[:, 1]) * (b[:, 0] - a[:, 0]) / (b[:, 1] - a[:, 1])
-    return ((cross & (x < at)).sum(axis=1) % 2) == 1
+    """Points inside a closed polygon (ray casting), one edge at a time so a long outline and
+    many points need little memory."""
+    x, y = pts[:, 0], pts[:, 1]
+    inside = np.zeros(len(pts), dtype=bool)
+    for (ax, ay), (bx, by) in zip(ring, np.roll(ring, -1, axis=0), strict=True):
+        cross = np.flatnonzero((ay > y) != (by > y))
+        if len(cross):
+            at = ax + (y[cross] - ay) * (bx - ax) / (by - ay)
+            inside[cross] ^= x[cross] < at
+    return inside
 
 
 def _vec(v: np.ndarray) -> gp_Vec:

@@ -1,9 +1,10 @@
 """Mesh to STEP conversion pipeline: flat faces (M1), holes, bosses and fillets (M2), cones,
-spheres and tori (M3a), and freeform surfaces (M3b)."""
+spheres and tori (M3a), freeform surfaces (M3b), and one-sided scans thickened into walls
+(M3d)."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import cadquery as cq
 import fast_simplification
@@ -22,13 +23,14 @@ from .cells import Corner, cell_solid
 from .cylinders import consolidate, find_cylinders, planes_around, shared_lengths
 from .features import EDGE_KINDS, Feature, apply_features, cylinder_between, plan_features
 from .freeform import Freeform, find_freeform
-from .quality import FitScore, ScanQuality, deviations, fit_score, scan_quality
+from .quality import GAP_WARNING, FitScore, ScanQuality, deviations, fit_score, scan_quality
 from .revolve import Revolved, find_revolved
 from .segment import Geo, Region, segment_planes
 from .step_io import face_type_counts
+from .thicken import Skin, ThickenOptions, find_skin, thicken
 from .tolerance import ToleranceLevel
 
-__all__ = ["ConversionResult", "UnsupportedGeometry", "convert", "repair"]
+__all__ = ["ConversionResult", "ThickenOptions", "UnsupportedGeometry", "convert", "repair"]
 
 MIN_FEATURE_TOLS = 5.0
 LOOSE_PIECE_SHARE = 0.1
@@ -61,17 +63,25 @@ class ConversionResult:
     """Cones, spheres and tori: the whole part if it is turned, or features on its faces."""
     freeform: list[Freeform] = field(default_factory=list)
     """B-spline surfaces: a whole curved side of the part, or a mound or scoop on a face."""
+    skin: Skin | None = None
+    """A one-sided scan, thickened into the wall that is the solid."""
+    volume_mm3: float | None = None
+    """Measured from a fine triangulation where OpenCASCADE's own integration is unreliable
+    (a thickened skin's long B-spline edges throw it off by a few percent)."""
 
     def report(self) -> dict:
         bb = self.solid.BoundingBox()
         return {
             "faces": len(self.solid.Faces()),
             "face_types": face_type_counts(self.solid),
-            "volume_mm3": round(self.solid.Volume(), 3),
+            "volume_mm3": round(
+                self.volume_mm3 if self.volume_mm3 is not None else self.solid.Volume(), 3
+            ),
             "size_mm": [round(bb.xlen, 3), round(bb.ylen, 3), round(bb.zlen, 3)],
             "scan_quality": self.scan.as_dict(),
             "fit": self.fit.as_dict(),
-            "features": [r.as_dict() for r in self.revolved]
+            "features": ([self.skin.as_dict()] if self.skin else [])
+            + [r.as_dict() for r in self.revolved]
             + [f.as_dict() for f in self.freeform]
             + [f.as_dict() for f in self.features if f.kind != "sharp"],
             "notes": self.notes,
@@ -169,7 +179,11 @@ def _manifold(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     return mesh
 
 
-def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
+def convert(
+    mesh: trimesh.Trimesh, level: ToleranceLevel, thickness: ThickenOptions | None = None
+) -> ConversionResult:
+    """thickness: how to thicken a one-sided scan (an open sheet, not a closed part) into a
+    wall. Without it, such a scan gets the defaults and a note saying so."""
     mesh = repair(mesh)
     scan = scan_quality(mesh, level)
 
@@ -186,7 +200,12 @@ def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
             min_feature_mm=max(level.min_feature_mm, MIN_FEATURE_TOLS * tol),
         )
 
-    work = Geo.of(working_mesh(mesh))
+    light = working_mesh(mesh)
+    if not mesh.is_watertight:
+        skin = find_skin(light, working, thickness or ThickenOptions(), np.random.default_rng(0))
+        if skin is not None:
+            return convert_skin(mesh, skin, scan, level, working, defaulted=thickness is None)
+    work = Geo.of(light)
     regions = segment_planes(work, working)
     patch_of, patches = find_cylinders(work, regions, working)
     planes, _ = planes_around(work, regions, patch_of, patches, working)
@@ -319,6 +338,63 @@ def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
         revolved,
         freeform,
     )
+
+
+def convert_skin(
+    mesh: trimesh.Trimesh,
+    skin: Skin,
+    scan: ScanQuality,
+    level: ToleranceLevel,
+    working: ToleranceLevel,
+    defaulted: bool,
+) -> ConversionResult:
+    """The wall for a one-sided scan. Its fit is scored against the scanned surface, not the
+    solid: for a centred wall that surface is inside it."""
+    solid, sheet = thicken(skin, working.fit_tolerance_mm)
+    dist = deviations(mesh, sheet, working.fit_tolerance_mm)
+    plausible = fit_score(mesh, dist, working).within_tolerance_pct
+    if plausible < MIN_PLAUSIBLE_FIT_PCT:
+        raise UnsupportedGeometry(
+            f"The smooth surface only matches {plausible:.0f}% of this one-sided scan, so no "
+            "wall was made from it."
+        )
+    o = skin.options
+    side = {
+        "in": "behind the scanned surface",
+        "out": "on the scanned side",
+        "centred": "centred on the scanned surface",
+    }[o.direction]
+    finish = {"square": "square", "chamfer": "chamfered", "round": "fully rounded"}[o.edge]
+    note = (
+        f"This scan is an open surface (one side only), so it was thickened into a "
+        f"{o.thickness_mm:g} mm wall {side}, with {finish} edges."
+    )
+    if skin.trimmed_mm > 0:
+        note += f" Its ragged border was trimmed {skin.trimmed_mm:.1f} mm in to a smooth outline."
+    if defaulted:
+        note += " If it is one side of a solid part, scan the other side too."
+    # A skin's free border is its edge, not a gap to close.
+    if scan.warning:
+        rest = scan.warning.replace(GAP_WARNING.format(scan.open_edges), "").strip()
+        scan = replace(scan, warning=" ".join(rest.split()) or None)
+    return ConversionResult(
+        solid,
+        mesh,
+        [],
+        scan,
+        fit_score(mesh, dist, level),
+        dist,
+        notes=[note],
+        skin=skin,
+        volume_mm3=solid_volume(solid, working.fit_tolerance_mm),
+    )
+
+
+def solid_volume(shape: cq.Shape, tol: float) -> float:
+    """Volume from a triangulation fine enough that its chords sag far less than tol."""
+    verts, tris = shape.tessellate(tol / 50, angularTolerance=0.02)
+    mesh = trimesh.Trimesh(np.array([v.toTuple() for v in verts]), np.array(tris), process=False)
+    return float(abs(mesh.volume))
 
 
 def take_revolved(

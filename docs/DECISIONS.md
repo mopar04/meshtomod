@@ -2,6 +2,34 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-28 (M3d: thicken skin)
+- **A skin is a whole scan that is one smooth open sheet.** It is only looked for when the
+  scan isn't closed: every smoothed normal must face the same way as the overall normal (no
+  more than 5% of the area facing away), the biggest border loop must enclose at least 80% of
+  the area seen from that side, and one height-field B-spline (`freeform.fit_surface`) must
+  fit it. Anything else (a box missing its bottom, the top half of a blocky part) goes
+  through the pipeline for closed parts as before.
+- **We build the wall ourselves, not with OpenCASCADE's offset.** `BRepOffset` (cadquery's
+  `Face.thicken`) gave solids whose booleans failed on dense scan edges and whose resewn
+  rebuilds were garbage. Instead: the two faces are the surface and its offset (a height field
+  refitted with 2, 4 or 8 times the spans until it is within 5% of the tolerance), a slab is
+  cut between them, and a ruled side wall along the surface normal at the outline splits off
+  the wall. Every face is a B-spline, and the part passes `isValid()`.
+- **Volume is measured on a fine tessellation.** OpenCASCADE's `Volume()` and `Area()` were
+  off by a few percent on these solids, in its own "precise" mode too. `ConversionResult.
+  volume_mm3` carries the measured value into the report.
+- **The outline is the scan's border, smoothed and pulled in.** Smoothed over the level's
+  smallest feature (2 mm at Functional) with the shrink taken back out, then pulled in until
+  90% of it lies on scanned surface (less the tolerance). Corners round off by about the
+  smoothing; that is the price of a clean edge on a torn border.
+- **Defaults: 3 mm, behind the scanned surface, square edges.** Behind ("in") keeps the
+  scanned face where it was scanned. Chamfer is t/3; "round" is a fillet of 0.49 t, just under
+  t/2 so a thin strip of the side wall stays between the two fillets. With the defaults
+  the note also says to scan the other side if this is one side of a solid part.
+- **Skins fit with one extra step of look-ahead.** Adding spans stops when one step doesn't help;
+  the wave skin needed (4, 3) spans after a (3, 2) that was no better. Look-ahead is only on
+  for skins: turned on for freeform areas it overfitted the curved top.
+
 ## 2026-10-28 (M3b: freeform surfaces)
 - **A freeform area is a height field.** Each curved area left over after planes, features
   and turned shapes is fitted as w = S(u, v) over the plane across it (`freeform.py`), a

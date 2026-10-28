@@ -84,7 +84,8 @@ export interface Feature {
     | "tapered_boss"
     | "revolved_boss"
     | "revolved_cut"
-    | "freeform";
+    | "freeform"
+    | "skin";
   diameter_mm?: number;
   radius_mm?: number;
   depth_mm?: number;
@@ -104,6 +105,11 @@ export interface Feature {
   /** Freeform: a whole curved side of the part, a mound on a face or a scoop in one. */
   form?: "surface" | "bump" | "recess";
   area_mm2?: number;
+  /** Skin: a one-sided scan thickened into a wall: how thick, which side of the scanned
+   * surface the material went, and how its rim is finished. */
+  thickness_mm?: number;
+  direction?: "in" | "out" | "centred";
+  edge?: "square" | "chamfer" | "round";
   /** Turned shapes: how many faces of each kind (cone, sphere, torus, cylinder, plane). */
   surfaces?: Record<string, number>;
 }
