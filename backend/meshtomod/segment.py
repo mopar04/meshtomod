@@ -171,14 +171,16 @@ def face_neighbours(mesh: Geo) -> list[list[int]]:
     return nbrs
 
 
-def smoothed_normals(mesh: Geo, rounds: int = SMOOTHING_ROUNDS) -> np.ndarray:
+def smoothed_normals(
+    mesh: Geo, rounds: int = SMOOTHING_ROUNDS, keep_deg: float = SMOOTHING_KEEP_DEG
+) -> np.ndarray:
     """Edge-preserving (bilateral) smoothing of face normals, so scanner noise does not break
     up flat areas while sharp edges stay sharp. Only used for the angle test; distances always
-    use the raw scan."""
+    use the raw scan. Neighbours more than keep_deg apart are not averaged."""
     normals = mesh.face_normals.copy()
     area = mesh.area_faces[:, None]
     pairs = mesh.face_adjacency
-    cos_keep = np.cos(np.radians(SMOOTHING_KEEP_DEG))
+    cos_keep = np.cos(np.radians(keep_deg))
     for _ in range(rounds):
         keep = ((normals[pairs[:, 0]] * normals[pairs[:, 1]]).sum(axis=1) > cos_keep)[:, None]
         acc = normals * area
