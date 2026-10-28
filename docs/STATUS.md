@@ -40,7 +40,9 @@ _Last updated: 2026-10-25 (placement: lay on face, origin, up axis, trim flush)_
   about 1 to 2 minutes on a million-face scan. Not yet tried on Zac's real scans of these
   prints. Limits: at Rough (1 mm, 5 mm smallest feature) the plate is still refused as
   curved, since its 2 mm rounds and small cones are below what Rough keeps; at Precise on a
-  scan too noisy for it (0.05 mm) the ring is missed.
+  scan too noisy for it (0.05 mm) the ring is missed. At Precise on the dense 0.02 mm copy the
+  flat-face rebuild leaves five slivers (under 3 mm² each) along the plate's bottom edge: a
+  planar-step issue to look at with M2.5.
 
 ## Real scans tried (Zac's, in `Developer/Nurbsmith/Test Scans`)
 - Scale checks out: tape roll 92.5/76.8/48.5 vs 93/76/48.5; cap 102.2–102.8 vs 102.
