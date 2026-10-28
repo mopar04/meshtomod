@@ -23,6 +23,7 @@ from .cells import Corner, cell_solid
 from .cylinders import consolidate, find_cylinders, planes_around, shared_lengths
 from .features import EDGE_KINDS, Feature, apply_features, cylinder_between, plan_features
 from .freeform import Freeform, find_freeform
+from .orient import TurnAxis, distinct_axes
 from .quality import GAP_WARNING, FitScore, ScanQuality, deviations, fit_score, scan_quality
 from .revolve import Revolved, find_revolved
 from .segment import Geo, Region, segment_planes
@@ -85,7 +86,25 @@ class ConversionResult:
             + [f.as_dict() for f in self.freeform]
             + [f.as_dict() for f in self.features if f.kind != "sharp"],
             "notes": self.notes,
+            "axes": [a.as_dict() for a in self.axes()],
         }
+
+    def axes(self) -> list[TurnAxis]:
+        """Lines the part can be stood on: a turned part's axis first, then turned features,
+        round bodies, bosses and holes, one per line."""
+        found = []
+        for r in sorted(self.revolved, key=lambda r: r.kind != "turned"):
+            diameters = r.dims.get("diameters_mm") or [
+                r.dims.get("head_mm") or r.dims.get("diameter_mm") or 0.0
+            ]
+            found.append(TurnAxis(r.axis.point, r.axis.direction, r.kind, max(diameters)))
+        for kind in ("body", "boss", "hole"):
+            found += [
+                TurnAxis(f.start, f.axis, kind, 2 * f.radius)
+                for f in self.features
+                if f.kind == kind
+            ]
+        return distinct_axes(found)
 
 
 def repair(mesh: trimesh.Trimesh) -> trimesh.Trimesh:

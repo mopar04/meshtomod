@@ -94,8 +94,9 @@ hole pattern. Each step goes into the feature recipe so it stays editable in CAD
   front/back scans of one part merged, background jobs for big scans.
 - **M3 Freeform + sink/extrude**: M3a cones, spheres and tori (shapes turned about an axis:
   done), M3b B-spline patches (done: a curved top, a mound, a scoop), then a small step to
-  align a turned part's axis to X, Y or Z (Zac's idea, after the production PR: the axis M3a
-  finds becomes a placement choice, and the original scan frame is kept so it can be undone),
+  align a turned part's axis to X, Y or Z (Zac's idea: the axis M3a finds becomes a placement
+  choice, and the original scan frame is kept so it can be undone; done in the geometry, the
+  API option and drawn axes after the production PR),
   M3c sink/extrude UI and feature recipe, M3d thicken (done in the geometry; the options reach
   the API and viewer after the production PR).
   **Thicken skin** for one-sided scans: wall thickness (default 3 mm), direction (in, out,
