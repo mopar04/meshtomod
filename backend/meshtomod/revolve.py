@@ -422,13 +422,34 @@ def fit_profile(f: _Folded, level: ToleranceLevel) -> tuple[list[ProfilePart], n
                 if refit is not None and fits(refit, idx):
                     pieces[k] = refit
     # A piece that gave its edges up may now be plainly a line (a narrow flat that an arc
-    # had taken together with the edges of the rounds beside it), or too short to keep.
+    # had taken together with the edges of the rounds beside it), not needed at all, or too
+    # short to keep.
     for k, piece in enumerate(pieces):
         idx = np.flatnonzero(owner == k)
-        if isinstance(piece, Arc2) and len(idx) >= 3:
-            line = fit_line(vertex_points(idx), f.n[idx])
-            if line is not None and fits(line, idx):
-                pieces[k] = line
+        if not isinstance(piece, Arc2) or len(idx) < 3:
+            continue
+        line = fit_line(vertex_points(idx), f.n[idx])
+        if line is not None and fits(line, idx):
+            pieces[k] = line
+            continue
+        # A narrow flat may still hold the edges of the rounds beside it, and pass for a
+        # gentle arc: the faces that face one line's way make a flat, and the rest lie on the
+        # rounds next to it.
+        core = _flat_core(f, idx, vertex_points, fits)
+        if core is not None and _length(f, core[0], core[1]) < min_len - tol:
+            core = None
+        rest = idx if core is None else np.setdiff1d(idx, core[1])
+        if core is not None and _on_rounds(f, owner, pieces, k, rest, tol):
+            pieces[k] = core[0]
+            owner[rest] = -1
+        # A blurred sharp edge (or a round so slight it can't be told from one): the pieces
+        # either side of it, run on to their corner, already lie on its faces.
+        elif _explained(f, owner, pieces, k, tol):
+            owner[idx] = -1
+        # Too short to be a round, but with a flat in it.
+        elif core is not None and _length(f, piece, idx) < level.min_feature_mm - tol:
+            pieces[k] = core[0]
+            owner[rest] = -1
     owner = _drop_short(f, owner, pieces, min_len - tol, level.min_feature_mm - tol)
     owner = _flood(f, owner)
     parts = []
@@ -498,6 +519,68 @@ def _drop_short(
     return owner
 
 
+def _flat_core(f: _Folded, idx: np.ndarray, vertex_points, fits) -> tuple[Line2, np.ndarray] | None:
+    """The line and faces of the flat middle of a stretch of faces, if it has one: the faces
+    that face one line's way, more strictly until the line fits them (the edges of rounds
+    either side face nearly its way too)."""
+    for limit in (LINE_NORMAL_DEG / 2, LINE_NORMAL_DEG / 4, LINE_NORMAL_DEG / 8):
+        core = idx
+        for _ in range(3):
+            line = fit_line(vertex_points(core), f.n[core])
+            flat = f.n[idx] @ line.normal >= np.cos(np.radians(limit))
+            if flat.sum() < 3:
+                break
+            core = idx[flat]
+        if len(core) >= 3 and fits(line, core):
+            return line, core
+    return None
+
+
+def _neighbours(f: _Folded, owner: np.ndarray, k: int) -> set[int]:
+    coo = f.adjacency.tocoo()
+    return set(owner[coo.col[owner[coo.row] == k]].tolist()) - {k, -1}
+
+
+def _explained(f: _Folded, owner: np.ndarray, pieces: list[Piece], k: int, tol: float) -> bool:
+    """Whether nearly all (by area) of piece k's faces lie, corners and all, within the
+    tolerance of the pieces beside it. Two are needed: one piece alone that fits them would
+    have been merged with it."""
+    others = [pieces[j] for j in _neighbours(f, owner, k)]
+    if len(others) < 2:
+        return False
+    idx = np.flatnonzero(owner == k)
+    corners = f.qv[f.tri[idx]].reshape(-1, 2)
+    off = np.min([np.abs(p.distance(corners)) for p in others], axis=0)
+    near = off.reshape(len(idx), -1).max(axis=1) <= tol
+    return bool(np.average(near, weights=f.area[idx]) >= NORMAL_AGREE)
+
+
+def _on_rounds(
+    f: _Folded, owner: np.ndarray, pieces: list[Piece], k: int, faces: np.ndarray, tol: float
+) -> bool:
+    """Whether the faces (nearly all, by area: some are noise) lie on the tighter rounds of the
+    same hand that border piece k."""
+    piece = pieces[k]
+    rounds = [
+        pieces[j]
+        for j in _neighbours(f, owner, k)
+        if isinstance(pieces[j], Arc2)
+        and pieces[j].convex == piece.convex
+        and pieces[j].radius < piece.radius / 2
+    ]
+    if not rounds:
+        return False
+    if not len(faces):
+        return True
+    near = np.zeros(len(faces), bool)
+    for arc in rounds:
+        dots = (arc.normal_at(f.q[faces]) * f.n[faces]).sum(axis=1)
+        near |= (np.abs(arc.distance(f.q[faces])) <= tol) & (
+            dots >= np.cos(np.radians(ARC_NORMAL_DEG))
+        )
+    return bool(np.average(near, weights=f.area[faces]) >= NORMAL_AGREE)
+
+
 def _flood(f: _Folded, owner: np.ndarray) -> np.ndarray:
     """Faces no piece holds go to the piece they touch most, flooded out over the mesh."""
     rows = f.adjacency
@@ -546,8 +629,7 @@ def _merge_pieces(f: _Folded, owner: np.ndarray, pieces: list[Piece], fits, fit_
         # The stretch a piece covers runs to its faces' corners: on a coarse mesh one row of
         # long triangles has its centres well inside the faces' reach.
         box = {
-            k: np.percentile(f.qv[f.tri[owner == k]].reshape(-1, 2), [0, 100], axis=0)
-            for k in live
+            k: np.percentile(f.qv[f.tri[owner == k]].reshape(-1, 2), [0, 100], axis=0) for k in live
         }
         pairs |= {
             (a, b)
@@ -680,7 +762,9 @@ def fit_turned(
         piece = part.piece
         local = np.searchsorted(wedge.faces, part.faces)
         ref = None if isinstance(piece, Line2) else (wedge.q[local] - piece.centre).mean(axis=0)
-        span = _param(piece, np.concatenate([wedge.q[local], wedge.qv[wedge.tri[local]].reshape(-1, 2)]), ref)
+        span = _param(
+            piece, np.concatenate([wedge.q[local], wedge.qv[wedge.tri[local]].reshape(-1, 2)]), ref
+        )
         lo, hi = span.min(), span.max()
         t = _param(piece, folded.q, ref)
         margin = SPAN_MARGIN_TOLS * tol
@@ -886,16 +970,27 @@ def find_groups(
         r = plane_by_id.get(lab)
         return r is not None and abs(r.plane.normal @ axis.direction) >= cos_square
 
+    def level_with(a: int, b: int) -> bool:
+        """Two flat faces on one plane."""
+        ra, rb = plane_by_id.get(a), plane_by_id.get(b)
+        if ra is None or rb is None:
+            return False
+        dot = float(ra.plane.normal @ rb.plane.normal)
+        return (
+            dot >= cos_square and abs(ra.plane.offset - rb.plane.offset) <= level.fit_tolerance_mm
+        )
+
     def best_axis(faces: np.ndarray) -> Axis | None:
-        tries = [axis_through(d, centres[faces], normals[faces], area[faces]) for d in directions]
+        # Square to a flat face if that fits: noise tilts a free fit a little, and a tilt
+        # just over the angle snap would leave the shape standing on nothing.
+        for d in directions:
+            axis = axis_through(d, centres[faces], normals[faces], area[faces])
+            if axis is not None and straight(faces, axis) >= 1.0 - TWIST_OUTLIERS:
+                return axis
         free = axis_from_normals(centres[faces], normals[faces], area[faces])
-        if free is not None and all(abs(free.direction @ d) < cos_square for d in directions):
-            tries.append(free)
-        scored = [(straight(faces, a), a) for a in tries if a is not None]
-        if not scored:
-            return None
-        score, axis = max(scored, key=lambda s: s[0])
-        return axis if score >= 1.0 - TWIST_OUTLIERS else None
+        if free is not None and straight(faces, free) >= 1.0 - TWIST_OUTLIERS:
+            return free
+        return None
 
     def fits_axis(lab: int, axis: Axis, taken: set[int]) -> bool:
         return (
@@ -941,10 +1036,12 @@ def find_groups(
                 if square(lab, axis):
                     # A flat face square to the axis is a cap (the top of a boss, the step of a
                     # shaft) if beyond it there is only more of the shape; otherwise the shape
-                    # stands on it.
+                    # stands on it. (Noise can split a narrow cap in two: the other half is
+                    # still the cap.)
                     beyond = touching.get(lab, set()) - members - junk - cuttable
                     if all(
-                        not square(b, axis) and (fits_axis(b, axis, taken) or scrap(b))
+                        level_with(b, lab)
+                        or (not square(b, axis) and (fits_axis(b, axis, taken) or scrap(b)))
                         for b in beyond
                     ):
                         members.add(lab)
@@ -1340,6 +1437,23 @@ def _segments_cross(a, b, c, d) -> bool:
     return d1 * d2 < -1e-12 and d3 * d4 < -1e-12
 
 
+def _on_axis(pts: np.ndarray, arc: Arc2, radius: float | None = None) -> tuple[float, float]:
+    """Centre height and radius of the circle centred on the axis that best fits pts, or just
+    the centre height for a given radius."""
+    if radius is None:
+
+        def residuals(p: np.ndarray) -> np.ndarray:
+            return np.hypot(pts[:, 0] - p[0], pts[:, 1]) - p[1]
+
+        p = least_squares(residuals, [arc.centre[0], arc.radius], method="lm").x
+        return float(p[0]), abs(float(p[1]))
+
+    def at(p: np.ndarray) -> np.ndarray:
+        return np.hypot(pts[:, 0] - p[0], pts[:, 1]) - radius
+
+    return float(least_squares(at, [arc.centre[0]], method="lm").x[0]), radius
+
+
 def _snap_pieces(
     pieces: list[Piece],
     pts_of: list[np.ndarray],
@@ -1474,10 +1588,16 @@ def _snap_pieces(
         elif tangent:
             line = tangent[0]
             centre = centre + (line.offset + sign * radius - line.normal @ centre) * line.normal
+        elif centre[1] == 0.0:
+            # A ball: refitted with its centre held on the axis (a free fit lets noise pull it
+            # off, and the radius with it), then the radius rounded and the centre refitted
+            # for that radius.
+            radius = _snap_value(_on_axis(pts_of[k], piece)[1], budget)
+            centre[0] = _on_axis(pts_of[k], piece, radius)[0]
+            centre[0] = z0 + _snap_value(centre[0] - z0, budget)
         else:
             centre[0] = z0 + _snap_value(centre[0] - z0, budget)
-            if centre[1] != 0.0:
-                centre[1] = _snap_value(centre[1], budget)
+            centre[1] = _snap_value(centre[1], budget)
         snapped = Arc2(centre, radius, piece.convex)
         if still_fits(snapped, k):
             out[k] = snapped
@@ -1683,7 +1803,6 @@ def describe(
         height = round(float(np.ptp(sampled[:, 0])), 3)
         return "turned", {"diameter_mm": diameter, "height_mm": height, "surfaces": surfaces}
 
-
     def height_over(base: Region) -> np.ndarray:
         z_b = float((base.plane.offset * base.plane.normal - axis.point) @ axis.direction)
         return (sampled[:, 0] - z_b) * float(np.sign(base.plane.normal @ axis.direction))
@@ -1709,8 +1828,8 @@ def describe(
         return "revolved_boss", {"diameter_mm": diameter, "height_mm": height, "surfaces": surfaces}
     depth = round(float(-above.min()), 3)
     cyl = [
-        p
-        for p in outline.pieces
+        k
+        for k, p in enumerate(outline.pieces)
         if isinstance(p, Line2) and p.kind() == "cylinder" and p.normal[1] < 0
     ]
     if (
@@ -1720,7 +1839,8 @@ def describe(
         and cyl
         and set(kinds) <= {"cone", "cylinder", "plane"}
     ):
-        shank = min(cyl, key=lambda p: abs(p.offset))
+        at = min(cyl, key=lambda k: abs(outline.pieces[k].offset))
+        shank = outline.pieces[at]
         cone = outline.pieces[kinds.index("cone")]
         half = np.degrees(np.arctan2(abs(cone.direction[1]), abs(cone.direction[0])))
         out_d = {
@@ -1732,7 +1852,7 @@ def describe(
             out_d["through"] = True
         else:
             out_d["depth_mm"] = depth
-        name = outline.names[outline.pieces.index(shank)]
+        name = outline.names[at]
         if name:
             out_d["standard"] = name
         return "countersink", out_d
@@ -1742,6 +1862,22 @@ def describe(
         return "revolved_boss", dims
     dims["depth_mm"] = depth
     return "revolved_cut", dims
+
+
+def off_bases(
+    mesh: Geo, faces: np.ndarray, bases: list[Region], normals: np.ndarray, tol: float
+) -> np.ndarray:
+    """The faces that are not part of a base: in a noisy scan the crease where a shape meets
+    the face it stands on is blurred, and the faces of the crease that lie on the base and face
+    its way would otherwise make a sliver of a flat (or a shallow cone) at the shape's foot."""
+    keep = np.ones(len(faces), bool)
+    corners = mesh.vertices[mesh.faces[faces]]
+    for b in bases:
+        n, d = b.plane.normal, b.plane.offset
+        on = np.abs(corners @ n - d).max(axis=1) <= tol
+        on &= normals[faces] @ n >= np.cos(np.radians(LINE_NORMAL_DEG))
+        keep &= ~on
+    return faces[keep]
 
 
 def find_revolved(
@@ -1762,6 +1898,7 @@ def find_revolved(
     grouping = axis_normals(mesh, noise_mm)
     for group in find_groups(mesh, planes, patches, labels, seeds, cuttable, grouping, level):
         member = np.flatnonzero(np.isin(labels, list(group.labels)))
+        member = off_bases(mesh, member, group.bases, normals, level.fit_tolerance_mm)
         folded, parts, part_of = fit_turned(mesh, member, group.axis, normals, level)
         if not parts or not {p.piece.kind() for p in parts} & {"cone", "sphere", "torus"}:
             continue

@@ -2,6 +2,41 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-28 (M3a: cones, spheres, tori)
+- **Order of M3** (Claude's call; Zac left order and tech to Claude): M3a revolved surfaces
+  (cones, spheres, tori), M3b freeform B-spline patches, M3c feature recipe and sink/extrude
+  (after the production PR, which touches the API and the app), M3d thicken skin.
+- **Shapes turned about an axis are found as a 2D profile.** Every face on a shape turned
+  about an axis lies on its profile when folded into (height, radius), so cones, cylinders and
+  flat faces become lines there and spheres and tori become circular arcs. A group of curved
+  regions is one shape when the face normals all cross one axis (`revolve.py`). The solid is
+  rebuilt by revolving the fitted outline, so it is exact, and corners come from the pieces'
+  intersections, the same rule as for planes.
+- **Lines, then arcs, then short lines.** Within the tolerance a short line also fits a band
+  of a big ball, and a gentle arc fits a narrow flat plus the edges of the rounds beside it,
+  so the order pieces are looked for in decides the answer. Long lines (at least the smallest
+  feature) go first, arcs second (also at least the smallest feature: a shorter band that
+  turns is a blurred sharp edge), short lines last (down to the smallest chamfer).
+- **Pieces settle by fit, not by order.** After merging, faces at a piece's edge move to the
+  neighbour they lie on and face more closely, and pieces are refitted, until nothing moves.
+  An arc that is then plainly a narrow flat with the edges of rounds beside it becomes the
+  flat; an arc the pieces either side already explain (run on to their corner) is dropped.
+- **Grouping by axis uses heavily smoothed normals** (12 rounds, 60 degree cut-off); the
+  profile uses lightly smoothed ones. Noise tilts raw normals out of the plane through the
+  axis, which made noisy shapes fail the twist test.
+- **An axis square to a flat face wins if it fits.** A free fit is tried only when none of
+  the part's flat faces gives an axis the shape's normals pass through; noise tilted free
+  fits just past the angle snap (0.5 degrees at Precise), leaving the shape on no base.
+- **Faces of a base plane are taken out of the shape.** In a scan the crease where a dome
+  meets the plate is blurred, and its faces otherwise make a sliver of a flat at the foot.
+- **A ball's centre is held on the axis**, its radius rounded, then its height refitted for
+  that radius. A free fit let noise pull the centre off (20.3 for a drawn 20).
+- **Sizes snap to round values first** (whole, then half, then tenth of a mm, within half the
+  tolerance). So the plate's 10.4 mm countersink head reads 10.5. Known and accepted: within
+  the tolerance either is right, and we don't guess the designer's numbers further.
+- **Known limit:** below the smallest feature (2 mm at Functional), a flat between two rounds
+  or a round on a shallow corner may come out as the corner. That is within the tolerance.
+
 ## 2026-10-27 (rename, finished)
 - **Everything is renamed to MeshToMod** (Zac: "complete the renaming on GitHub"). The repo is
   `mopar04/meshtomod`, the Python package is `meshtomod`, and the frontend package is

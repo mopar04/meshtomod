@@ -32,13 +32,14 @@ def test_calibration_part_features(calibration):
     feats = report["features"]
     holes = sorted((f["diameter_mm"], f.get("depth_mm")) for f in feats if f["type"] == "hole")
     # Through holes (one non-standard), the counterbore over its hole, the blind hole and
-    # the cross hole in the boss. The countersunk hole (4.5) depends on the tessellation, as
-    # its cone is not modelled yet.
-    holes = [h for h in holes if h != (4.5, None)]
+    # the cross hole in the boss.
     assert holes == [
         (3.4, None), (5.0, None), (5.5, None), (5.5, None), (6.0, 5.0), (6.6, None),
         (7.3, None), (10.0, 4.0),
     ]  # fmt: skip
+    (csk,) = [f for f in feats if f["type"] == "countersink"]
+    assert (csk["diameter_mm"], csk["head_mm"], csk["angle_deg"]) == (4.5, 9.0, 90.0)
+    assert csk["standard"] == "M4 clearance" and csk["through"]
     (slot,) = [f for f in feats if f["type"] == "slot"]
     assert (slot["width_mm"], slot["length_mm"]) == (6.0, 20.0)
     (boss,) = [f for f in feats if f["type"] == "boss"]
