@@ -92,7 +92,8 @@ hole pattern. Each step goes into the feature recipe so it stays editable in CAD
   moved to M3)
 - **M2.5 Real-scan readiness**: thin walls patched from measured thickness, open ends closed,
   front/back scans of one part merged, background jobs for big scans.
-- **M3 Freeform + sink/extrude**: B-spline patches, sink/extrude UI, feature recipe.
+- **M3 Freeform + sink/extrude**: M3a cones, spheres and tori (shapes turned about an axis:
+  done), M3b B-spline patches, M3c sink/extrude UI and feature recipe, M3d thicken.
   **Thicken skin** for one-sided scans: wall thickness (default 3 mm), direction (in, out,
   centred), and edge finish (square, chamfer, or full round = thickness / 2). The ragged scan
   border is trimmed to a smooth outline first.

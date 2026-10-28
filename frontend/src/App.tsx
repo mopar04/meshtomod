@@ -489,12 +489,40 @@ export default function App() {
 
 function describe(f: Feature): string {
   const mm = (v: number) => `${+v.toFixed(2)} mm`;
-  if (f.type === "fillet") return `Fillet R${mm(f.radius_mm!)}`;
-  if (f.type === "body") return `Round body \u00d8${mm(f.diameter_mm!)}, ${mm(f.height_mm!)} tall`;
-  if (f.type === "boss") return `Boss \u00d8${mm(f.diameter_mm!)}, ${mm(f.height_mm!)} tall`;
-  const depth = f.through ? "through" : `${mm(f.depth_mm!)} deep`;
+  const d = (v: number) => `\u00d8${mm(v)}`;
+  const depth = f.through ? "through" : `${mm(f.depth_mm ?? 0)} deep`;
   const std = f.standard ? ` (${f.standard})` : "";
-  return `Hole \u00d8${mm(f.diameter_mm!)}${std}, ${depth}`;
+  switch (f.type) {
+    case "fillet":
+      return `Fillet R${mm(f.radius_mm!)}`;
+    case "chamfer":
+      return `Chamfer ${mm(f.size_mm!)}`;
+    case "slot":
+      return `Slot ${mm(f.width_mm!)} wide, ${mm(f.length_mm!)} long, ${depth}`;
+    case "body":
+      return `Round body ${d(f.diameter_mm!)}, ${mm(f.height_mm!)} tall`;
+    case "boss":
+      return `Boss ${d(f.diameter_mm!)}, ${mm(f.height_mm!)} tall`;
+    case "turned":
+      return `Turned part ${d(f.diameter_mm!)}, ${mm(f.height_mm!)} tall`;
+    case "countersink":
+      return (
+        `Countersunk hole ${d(f.diameter_mm!)}${std}, head ${d(f.head_mm!)} ` +
+        `at ${+f.angle_deg!.toFixed(1)}\u00b0, ${depth}`
+      );
+    case "dome":
+      return `Dome R${mm(f.radius_mm!)}, ${d(f.diameter_mm!)}, ${mm(f.height_mm!)} tall`;
+    case "tapered_boss": {
+      const [base, top] = f.diameters_mm!;
+      return `Tapered boss ${d(base)} to ${d(top)}, ${mm(f.height_mm!)} tall`;
+    }
+    case "revolved_boss":
+      return `Turned boss ${d(f.diameter_mm!)}, ${mm(f.height_mm!)} tall`;
+    case "revolved_cut":
+      return `Turned recess ${d(f.diameter_mm!)}, ${depth}`;
+    default:
+      return `Hole ${d(f.diameter_mm!)}${std}, ${depth}`;
+  }
 }
 
 /** Identical features listed once with a count, e.g. "4× Hole Ø6.6 mm (M6 clearance), through". */

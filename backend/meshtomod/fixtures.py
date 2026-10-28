@@ -208,3 +208,55 @@ def blind_hole_block() -> trimesh.Trimesh:
 
 def bracket() -> trimesh.Trimesh:
     return from_cad(bracket_cad())
+
+
+def turned_part_cad():
+    """A lathe part about Z, 30 mm across and 44 mm tall: a Ø30 base with a 1 mm chamfer, a
+    step to Ø20, a groove to Ø16 with a 45 degree flank, a cone to Ø12, a neck and a ball end,
+    and a Ø4 cross hole."""
+    import cadquery as cq
+
+    # (radius, z), bottom to top, then closed down the axis.
+    pts = [
+        (0, 0), (14, 0), (15, 1), (15, 8), (10, 8), (10, 14), (8, 14), (8, 15), (10, 17),
+        (10, 24), (6, 32), (6, 38),
+    ]  # fmt: skip
+    body = cq.Workplane("XZ").polyline(pts).lineTo(0, 38).close().revolve(360, (0, 0, 0), (0, 1, 0))
+    ball = cq.Workplane("XY").workplane(offset=38).sphere(6.0)
+    body = body.union(ball.intersect(cq.Workplane("XY").workplane(offset=38).circle(7).extrude(7)))
+    cross = cq.Workplane("YZ").workplane(offset=-20).center(0, 20).circle(2.0).extrude(40)
+    return body.cut(cross)
+
+
+def surfaces_plate_cad():
+    """70 x 50 x 6 plate with M3 and M5 countersunk holes, a dome (a cap of a 20 mm sphere,
+    6 mm high), a tapered boss (Ø16 to Ø10, 8 mm) and a ring (Ø20, Ø10 bore through, 5 mm
+    tall, 2 mm rounds on both top edges)."""
+    import cadquery as cq
+
+    t = 6.0
+    p = cq.Workplane("XY").box(70, 50, t, centered=(True, True, False))
+    p = (
+        p.faces(">Z").workplane()
+        .pushPoints([(-27, 15)]).cskHole(3.4, 6.5, 90)
+        .pushPoints([(-27, -12)]).cskHole(5.5, 10.4, 90)
+    )  # fmt: skip
+    dome = cq.Workplane("XY").workplane(offset=t - 14).center(-2, 0).sphere(20.0)
+    p = p.union(
+        dome.intersect(cq.Workplane("XY").workplane(offset=t).center(-2, 0).circle(16).extrude(7))
+    )
+    p = p.union(cq.Workplane().add(cq.Solid.makeCone(8.0, 5.0, 8.0, cq.Vector(24, 13, t))))
+    ring = (
+        cq.Workplane("XY").workplane(offset=t).center(24, -12)
+        .circle(10).circle(5).extrude(5).faces(">Z").edges().fillet(2.0)
+    )  # fmt: skip
+    p = p.union(ring)
+    return p.cut(cq.Workplane("XY").center(24, -12).circle(5).extrude(20))
+
+
+def turned_part() -> trimesh.Trimesh:
+    return from_cad(turned_part_cad())
+
+
+def surfaces_plate() -> trimesh.Trimesh:
+    return from_cad(surfaces_plate_cad())

@@ -1,4 +1,5 @@
-"""Mesh to STEP conversion pipeline: flat faces (M1) plus holes, bosses and fillets (M2)."""
+"""Mesh to STEP conversion pipeline: flat faces (M1), holes, bosses and fillets (M2), and
+cones, spheres and tori (M3)."""
 
 from __future__ import annotations
 
@@ -9,11 +10,19 @@ import fast_simplification
 import numpy as np
 import trimesh
 
-from .brep import UnsupportedGeometry, check_supported, merge_coplanar, rebuild_solid, snap_planes
+from .brep import (
+    UnsupportedGeometry,
+    check_supported,
+    curved_regions,
+    merge_coplanar,
+    rebuild_solid,
+    snap_planes,
+)
 from .cells import Corner, cell_solid
 from .cylinders import consolidate, find_cylinders, planes_around, shared_lengths
 from .features import EDGE_KINDS, Feature, apply_features, cylinder_between, plan_features
 from .quality import FitScore, ScanQuality, deviations, fit_score, scan_quality
+from .revolve import Revolved, find_revolved
 from .segment import Geo, Region, segment_planes
 from .step_io import face_type_counts
 from .tolerance import ToleranceLevel
@@ -45,6 +54,8 @@ class ConversionResult:
     features: list[Feature] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     """Approximations made, for the user to know about."""
+    revolved: list[Revolved] = field(default_factory=list)
+    """Cones, spheres and tori: the whole part if it is turned, or features on its faces."""
 
     def report(self) -> dict:
         bb = self.solid.BoundingBox()
@@ -55,7 +66,8 @@ class ConversionResult:
             "size_mm": [round(bb.xlen, 3), round(bb.ylen, 3), round(bb.zlen, 3)],
             "scan_quality": self.scan.as_dict(),
             "fit": self.fit.as_dict(),
-            "features": [f.as_dict() for f in self.features if f.kind != "sharp"],
+            "features": [r.as_dict() for r in self.revolved]
+            + [f.as_dict() for f in self.features if f.kind != "sharp"],
             "notes": self.notes,
         }
 
@@ -181,13 +193,20 @@ def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
     features, caps, skipped = plan_features(
         work, planes, patches, shared_lengths(work, labels), working
     )
+    revolved, features, planes, patches, labels = take_revolved(
+        work, planes, patches, labels, features, working, scan.noise_mm
+    )
+    if revolved:
+        # The curved areas it listed are mostly what the turned shapes took.
+        _, _, skipped = plan_features(work, planes, patches, shared_lengths(work, labels), working)
     modelled = {f.patch for f in features}
     patch_area = {p.id: float(work.area_faces[p.faces].sum()) for p in patches}
     note = check_supported(
         planes,
         working,
         unmodelled=sum(a for pid, a in patch_area.items() if pid not in modelled),
-        curved_total=sum(patch_area.values()),
+        curved_total=sum(patch_area.values())
+        + sum(float(work.area_faces[r.faces].sum()) for r in revolved),
     )
     base_planes = [r for r in planes if r.id not in caps]
     other_side = {
@@ -208,8 +227,14 @@ def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
         return None
 
     body = next((f for f in features if f.kind == "body"), None)
+    turned = [r.add for r in revolved if r.kind == "turned"]
+    adds = [(r.kind, r.add) for r in revolved if r.add is not None and r.kind != "turned"]
+    cuts = [(r.kind, r.cut) for r in revolved if r.cut is not None]
     try:
-        if body:
+        if turned and not base_planes:
+            base = turned[0] if len(turned) == 1 else cq.Compound.makeCompound(turned)
+            turned = []
+        elif body:
             base = cylinder_between(body.start, body.end, body.radius)
         else:
             base = rebuild_solid(work, base_planes, working.fit_tolerance_mm, labels, through)
@@ -244,10 +269,15 @@ def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
             for f in features
             if f.kind == "slot"
         ]
+        # A turned feature's faces within the part's faces are cut later; those beyond them
+        # (a dome) are added later.
+        for r in revolved:
+            fixed += [(r.faces[r.inside], True), (r.faces[~r.inside], False)]
         base = cell_solid(
             work, base_planes, working.fit_tolerance_mm, working.min_feature_mm, corners, fixed
         )
-    solid, failed = apply_features(base, features, planes)
+    adds = [("turned", t) for t in turned] + adds
+    solid, failed = apply_features(base, features, planes, adds, cuts)
     dist = deviations(mesh, solid, working.fit_tolerance_mm)
     # Never hand back a model that plainly is not the part.
     plausible = fit_score(mesh, dist, working).within_tolerance_pct
@@ -265,4 +295,40 @@ def convert(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ConversionResult:
         dist,
         features,
         [n for n in (note, skipped, failed) if n],
+        revolved,
     )
+
+
+def take_revolved(
+    work: Geo,
+    planes: list[Region],
+    patches: list,
+    labels: np.ndarray,
+    features: list[Feature],
+    level: ToleranceLevel,
+    noise_mm: float,
+) -> tuple[list[Revolved], list[Feature], list[Region], list, np.ndarray]:
+    """Find turned shapes among what the plane, hole, boss and fillet rules left curved, and
+    take their planes, patches and features out of those rules' hands.
+
+    Each shape's faces get a label of their own that no plane has, so the base solid is
+    rebuilt with the faces it stands on whole (as if the shape weren't there), and the shape
+    is then added to it or cut from it."""
+    modelled = {f.patch for f in features if f.kind != "sharp"}
+    modelled |= {i for f in features for i in f.also}
+    seeds = curved_regions(planes, level) | {p.id for p in patches if p.id not in modelled}
+    cuttable = {f.patch for f in features if f.kind in ("hole", "slot")}
+    revolved = find_revolved(work, planes, patches, labels, seeds, cuttable, noise_mm, level)
+    if not revolved:
+        return revolved, features, planes, patches, labels
+    used = set().union(*(r.labels for r in revolved))
+    features = [f for f in features if f.patch not in used and not ({*f.also, *f.planes} & used)]
+    planes = [r for r in planes if r.id not in used]
+    patches = [p for p in patches if p.id not in used]
+    for x in [*planes, *patches]:
+        x.neighbours -= used
+    labels = labels.copy()
+    top = max(int(labels.max()), *(r.id for r in planes), *(p.id for p in patches), 0)
+    for k, r in enumerate(revolved):
+        labels[r.faces] = top + 1 + k
+    return revolved, features, planes, patches, labels

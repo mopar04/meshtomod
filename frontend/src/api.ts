@@ -71,13 +71,37 @@ export interface ConversionReport {
 }
 
 export interface Feature {
-  type: "hole" | "boss" | "fillet" | "body";
+  type:
+    | "hole"
+    | "boss"
+    | "fillet"
+    | "body"
+    | "slot"
+    | "chamfer"
+    | "turned"
+    | "countersink"
+    | "dome"
+    | "tapered_boss"
+    | "revolved_boss"
+    | "revolved_cut";
   diameter_mm?: number;
   radius_mm?: number;
   depth_mm?: number;
   height_mm?: number;
   through?: boolean;
   standard?: string;
+  /** Slot. */
+  width_mm?: number;
+  length_mm?: number;
+  /** Chamfer: its width. */
+  size_mm?: number;
+  /** Countersink: head diameter and included angle. */
+  head_mm?: number;
+  angle_deg?: number;
+  /** Tapered boss: base and top diameters. */
+  diameters_mm?: [number, number];
+  /** Turned shapes: how many faces of each kind (cone, sphere, torus, cylinder, plane). */
+  surfaces?: Record<string, number>;
 }
 
 export interface Conversion {

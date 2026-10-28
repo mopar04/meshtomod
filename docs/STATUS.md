@@ -29,6 +29,21 @@ _Last updated: 2026-10-25 (placement: lay on face, origin, up axis, trim flush)_
   - Tests: five CAD-built parts (holed plate, filleted block, boss plate, blind hole block,
     bracket) at 0.05 mm noise recover exact face types, feature sizes and volume.
 
+- **M3a cones, spheres and tori** (`revolve.py`): any shape turned about an axis is found
+  from where its face normals point, folded into a 2D profile, fitted with lines and arcs,
+  and rebuilt by revolving the outline. Reported as a turned part (a whole lathe part), a
+  countersink, a dome, a tapered boss, or a turned boss or recess. Sizes and cone angles snap
+  to round or standard values. On the batch prints' designs (turned part, surfaces plate)
+  and on dense noisy copies of them (0.02 and 0.05 mm) every surface comes back as drawn;
+  the calibration part's countersink now reads 4.5 mm, head 9, 90 degrees. Precise is right
+  on the designs and on 0.02 mm noise (a laser scan). Takes 20 to 40 s on the designs and
+  about 1 to 2 minutes on a million-face scan. Not yet tried on Zac's real scans of these
+  prints. Limits: at Rough (1 mm, 5 mm smallest feature) the plate is still refused as
+  curved, since its 2 mm rounds and small cones are below what Rough keeps; at Precise on a
+  scan too noisy for it (0.05 mm) the ring is missed. At Precise on the dense 0.02 mm copy the
+  flat-face rebuild leaves five slivers (under 3 mm² each) along the plate's bottom edge: a
+  planar-step issue to look at with M2.5.
+
 ## Real scans tried (Zac's, in `Developer/Nurbsmith/Test Scans`)
 - Scale checks out: tape roll 92.5/76.8/48.5 vs 93/76/48.5; cap 102.2–102.8 vs 102.
 - Box with floating bits: bits dropped; Rough converts (98% within 1 mm); Functional is held
@@ -54,11 +69,10 @@ _Last updated: 2026-10-25 (placement: lay on face, origin, up axis, trim flush)_
 
 - **Calibration part** (`tools/calibration_part.py`, 19 known features; Zac is printing and
   scanning it). The design mesh went from 90% to 98% within 0.3 mm at Functional. Now right:
-  seven of the eight holes including the non-standard 7.3 mm one, the counterbore (10 mm, 4 deep, over
+  the holes including the non-standard 7.3 mm one, the countersunk M4 hole (4.5, head 9, 90
+  degrees, since M3a), the counterbore (10 mm, 4 deep, over
   5.5 mm), the blind hole depth (5.0), the slot (6 × 20), the boss (16 × 20) with its cross
   hole, the thin wall, the r8 and r3 corner fillets and the 1.5 mm chamfers. Still wrong:
-  - the countersunk hole: no cone feature yet, and the cone muddles the 4.5 mm hole under it,
-    which is left out,
   - the corner blends where the r8 fillets meet the top chamfer (read as r11 fillets), and some
     fillets and chamfers that don't apply together,
   - the rounded pocket corners (rebuilt as small flats),
@@ -91,7 +105,8 @@ _Last updated: 2026-10-25 (placement: lay on face, origin, up axis, trim flush)_
   scanner software 96.8%), freeform 99.8%, surfaces plate 98.9%, turned part 99.5%, size
   gauge 85% (0.25 mm off in height: a 4 mm plate leaves little wall to line up on).
   Converting the merges: thin wall 93.3% (the tube's outside is missed), size gauge 97.7%;
-  the freeform, surfaces plate and turned part are refused as curved (M3).
+  the freeform was refused as curved; the surfaces plate and turned part were too, before
+  M3a.
 
 - **Placement before export** (`orient.py`, Zac 2026-10-25): Orca-style lay on face
   (hull faces the part rests on stably, hover and click in the viewer), squared to X/Y,
@@ -114,7 +129,8 @@ _Last updated: 2026-10-25 (placement: lay on face, origin, up axis, trim flush)_
   noise, with a few misses (the bracket at 0.1 mm Functional keeps 1 of 3 cylinders; the
   holed plate at 0.02 mm Rough finds 3 of 4 holes). At 0.3 mm noise results are poor; the
   guard catches some but not all. Zac's laser scans are 0.01 to 0.03 mm.
-- No cones, spheres, tori or freeform yet; chamfers come out as plain planes.
+- No freeform yet (M3b). A cone, sphere or torus is only modelled as part of a shape turned
+  about an axis (not, say, a ball-end fillet along a straight edge).
 - Conversion runs inside the request. Results are kept in a temp folder, last 50 only.
 
 ## Open questions for Zac
