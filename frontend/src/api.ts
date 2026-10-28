@@ -83,7 +83,8 @@ export interface Feature {
     | "dome"
     | "tapered_boss"
     | "revolved_boss"
-    | "revolved_cut";
+    | "revolved_cut"
+    | "freeform";
   diameter_mm?: number;
   radius_mm?: number;
   depth_mm?: number;
@@ -100,6 +101,9 @@ export interface Feature {
   angle_deg?: number;
   /** Tapered boss: base and top diameters. */
   diameters_mm?: [number, number];
+  /** Freeform: a whole curved side of the part, a mound on a face or a scoop in one. */
+  form?: "surface" | "bump" | "recess";
+  area_mm2?: number;
   /** Turned shapes: how many faces of each kind (cone, sphere, torus, cylinder, plane). */
   surfaces?: Record<string, number>;
 }

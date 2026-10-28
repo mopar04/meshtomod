@@ -2,6 +2,41 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-28 (M3b: freeform surfaces)
+- **A freeform area is a height field.** Each curved area left over after planes, features
+  and turned shapes is fitted as w = S(u, v) over the plane across it (`freeform.py`), a
+  cubic B-spline. That covers a curved top, a mound on a face and a scoop in a face: the
+  shapes a turntable scan sees from one side. A fully rounded body (a ball, a bottle) is not
+  one height field and is still refused; patching several together is later work.
+- **Few spans, chosen by the scan.** Spans are added (2, 3, 4, 6 ... 24 along the long side)
+  until 99% of the points are within the tolerance, then only while each step cuts the RMS
+  error by 20% or more. Past that the surface would follow noise. The smoothness penalty is
+  only a whisper (1e-5): it carries the surface on straight past the edge, but stronger
+  (1e-3) it flattened real curvature by 0.05 mm.
+- **Poles at the Greville points.** Placing the B-spline's poles there makes the STEP surface
+  exactly the fitted w = S(u, v), with no second fit to CAD.
+- **The edge comes from a boolean, not the scan.** The surface is carried a few triangles
+  past the area's edge and swept into a solid: a mound is added from its base face up, a
+  scoop cut from its base face down, a whole curved top cut off a block. The exact edge where
+  it meets the flat faces is where the solids meet. A mound or scoop's column follows the
+  loop where the surface meets the base face, offset outward; the convex hull is the fallback
+  when that loop crosses itself.
+- **Growing an area: joint refit, then lie-on.** A neighbour joins if a surface through the
+  area and it still fits and it lies on that surface (95% of points within the tolerance,
+  mean normals within 10 degrees). Mean, not median, normals: on a noisy scan small triangles
+  tilt 10 degrees or more each way, but the tilts cancel.
+- **Facet or flat: compare the chord with the noise.** A flat region joins only if the
+  surface fits it clearly better than its own plane. The noise is the same in both fits, so
+  the difference in mean square error is the chord; it must be over 3 times its sampling
+  spread and over 0.02 tolerances. A ratio test (surface RMS under 0.7 of the plane's) failed
+  at 0.05 mm noise, where the noise hides a facet's chord. Flats smaller than a freeform area
+  may be (4 smallest features square) join without the test.
+- **Inside test samples fill each block.** Block samples are now drawn through the block
+  itself, not its bounding box. A thin block cut at a slant fills 1% of its box and was judged
+  by its middle point, which left the curved top's side walls 0.3 mm out on a tilted scan.
+- **Freeform test parts are tessellated finer** (0.05 rad). OpenCASCADE's default left the
+  design meshes' chords sagging up to 0.2 mm under the drawn surface.
+
 ## 2026-10-28 (M3a: cones, spheres, tori)
 - **Order of M3** (Claude's call; Zac left order and tech to Claude): M3a revolved surfaces
   (cones, spheres, tori), M3b freeform B-spline patches, M3c feature recipe and sink/extrude

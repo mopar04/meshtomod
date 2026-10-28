@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-25 (placement: lay on face, origin, up axis, trim flush)_
+_Last updated: 2026-10-28 (M3b freeform surfaces)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -43,6 +43,19 @@ _Last updated: 2026-10-25 (placement: lay on face, origin, up axis, trim flush)_
   scan too noisy for it (0.05 mm) the ring is missed. At Precise on the dense 0.02 mm copy the
   flat-face rebuild leaves five slivers (under 3 mm² each) along the plate's bottom edge: a
   planar-step issue to look at with M2.5.
+
+- **M3b freeform surfaces** (`freeform.py`): a smooth curved area that is not a plane, a
+  feature or a turned shape is fitted as one B-spline surface, seen from one side as a height
+  field, and joined to the part with a boolean: a mound added to a face, a scoop cut into one,
+  or a whole curved top cut off a block. Reported as "Freeform mound, 7 mm tall", "Freeform
+  scoop, 3.5 mm deep" or "Freeform surface". On three test designs (a mouse-like lofted top,
+  a lopsided mound on a plate, a tilted thumb scoop in a block) and on dense noisy copies
+  turned to an odd angle (0.02 and 0.05 mm), each comes back as the flat faces plus one
+  B-spline face, within 0.006 mm of the drawn volume per mm² and over 99.5% within 0.3 mm.
+  Takes 20 to 50 s on the noisy copies, up to 100 s on the coarser design meshes. Not yet
+  tried on Zac's freeform print scan. Limits: one height field per area (a fully rounded
+  body like the smoke detector or bottle is still refused); a hole or boss in a freeform
+  face isn't modelled yet.
 
 ## Real scans tried (Zac's, in `Developer/Nurbsmith/Test Scans`)
 - Scale checks out: tape roll 92.5/76.8/48.5 vs 93/76/48.5; cap 102.2–102.8 vs 102.
@@ -129,8 +142,9 @@ _Last updated: 2026-10-25 (placement: lay on face, origin, up axis, trim flush)_
   noise, with a few misses (the bracket at 0.1 mm Functional keeps 1 of 3 cylinders; the
   holed plate at 0.02 mm Rough finds 3 of 4 holes). At 0.3 mm noise results are poor; the
   guard catches some but not all. Zac's laser scans are 0.01 to 0.03 mm.
-- No freeform yet (M3b). A cone, sphere or torus is only modelled as part of a shape turned
-  about an axis (not, say, a ball-end fillet along a straight edge).
+- Freeform areas must each be a height field (seen whole from one side). A cone, sphere or
+  torus is only modelled as part of a shape turned about an axis (not, say, a ball-end fillet
+  along a straight edge).
 - Conversion runs inside the request. Results are kept in a temp folder, last 50 only.
 
 ## Open questions for Zac

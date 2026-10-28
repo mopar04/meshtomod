@@ -126,13 +126,14 @@ def sides(mesh: trimesh.Trimesh, up=(0.0, 0.0, 1.0)):
 # ---------------------------------------------------------------------------------------------
 
 
-def from_cad(shape, tolerance: float = 0.02) -> trimesh.Trimesh:
-    """Tessellate a CadQuery shape or workplane into a mesh."""
+def from_cad(shape, tolerance: float = 0.02, angular: float = 0.1) -> trimesh.Trimesh:
+    """Tessellate a CadQuery shape or workplane into a mesh. angular is the most a triangle may
+    turn from the next, in radians: on a gentle freeform surface it sets the density."""
     import cadquery as cq
 
     if isinstance(shape, cq.Workplane):
         shape = shape.val()
-    verts, tris = shape.tessellate(tolerance, angularTolerance=0.1)
+    verts, tris = shape.tessellate(tolerance, angularTolerance=angular)
     mesh = trimesh.Trimesh(np.array([v.toTuple() for v in verts]), np.array(tris))
     mesh.merge_vertices()
     trimesh.repair.fix_normals(mesh)
@@ -260,3 +261,97 @@ def turned_part() -> trimesh.Trimesh:
 
 def surfaces_plate() -> trimesh.Trimesh:
     return from_cad(surfaces_plate_cad())
+
+
+def freeform_top_cad():
+    """80 x 50 base, flat underneath, with a smooth lofted top rising to 18 mm, like a mouse
+    shell. The same design as the batch print."""
+    import cadquery as cq
+
+    sections = []
+    for y, (edge, mid, peak_x) in zip(
+        (-25, -12.5, 0, 12.5, 25),
+        ((3, 6, 5), (4, 13, 8), (5, 18, 10), (4, 14, 8), (3, 7, 5)),
+        strict=True,
+    ):
+        w = (
+            cq.Workplane("XZ", origin=(0, y, 0))
+            .moveTo(-40, 0).lineTo(40, 0).lineTo(40, edge)
+            .spline([(peak_x, mid), (-40, edge)], includeCurrent=True)
+            .close()
+        )  # fmt: skip
+        sections.append(w.val())
+    return cq.Workplane().add(cq.Solid.makeLoft(sections, False))
+
+
+def _height_field(fn, x: tuple[float, float], y: tuple[float, float], sweep: float, n: int = 41):
+    """The solid swept from the B-spline surface through z = fn(x, y) (sampled on an n x n
+    grid over the x and y ranges) by sweep along Z: down for a negative sweep."""
+    import cadquery as cq
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism
+    from OCP.GeomAPI import GeomAPI_PointsToBSplineSurface
+    from OCP.gp import gp_Pnt, gp_Vec
+    from OCP.TColgp import TColgp_Array2OfPnt
+
+    grid = TColgp_Array2OfPnt(1, n, 1, n)
+    for i in range(n):
+        for j in range(n):
+            px = x[0] + (x[1] - x[0]) * i / (n - 1)
+            py = y[0] + (y[1] - y[0]) * j / (n - 1)
+            grid.SetValue(i + 1, j + 1, gp_Pnt(px, py, fn(px, py)))
+    surface = GeomAPI_PointsToBSplineSurface(grid, 3, 3).Surface()
+    face = BRepBuilderAPI_MakeFace(surface, 1e-6).Face()
+    return cq.Workplane().add(
+        cq.Shape.cast(BRepPrimAPI_MakePrism(face, gp_Vec(0, 0, sweep)).Shape())
+    )
+
+
+def _pillow(x: float, y: float) -> float:
+    # An off-centre, lopsided mound: 7 mm above the plate at its top, meeting the plate along
+    # an egg-shaped edge. Neither a sphere nor turned about any axis.
+    u, v = (x + 4) / 22, y / 15
+    return 5 + 7 * (1 - u * u - v * v) + 2.0 * u * v + 1.5 * u**3
+
+
+def freeform_bump_plate_cad():
+    """70 x 50 x 5 plate with a smooth lopsided mound on top (freeform, about 44 x 30 mm at its
+    foot and 7 mm tall)."""
+    import cadquery as cq
+
+    plate = cq.Workplane("XY").box(70, 50, 5, centered=(True, True, False))
+    mound = _height_field(_pillow, (-30, 22), (-20, 20), -30)
+    keep = cq.Workplane("XY").box(70, 50, 20, centered=(True, True, False))
+    return plate.union(mound.intersect(keep))
+
+
+def _dish(x: float, y: float) -> float:
+    # A thumb rest: a long shallow scoop, 3.5 mm deep, tilted and off-centre.
+    u, v = (x - 3) / 18, (y - 2) / 11
+    return 20 - 3.5 * (1 - u * u - v * v) + 0.8 * u - 0.6 * u * v
+
+
+def freeform_recess_block_cad():
+    """60 x 40 x 20 block with a smooth thumb scoop pressed into its top (freeform)."""
+    import cadquery as cq
+
+    block = cq.Workplane("XY").box(60, 40, 20, centered=(True, True, False))
+    scoop = _height_field(_dish, (-22, 26), (-14, 18), 30)
+    return block.cut(scoop.intersect(block))
+
+
+# The freeform designs are tessellated finer than the default: OpenCASCADE meshes a gentle
+# surface coarsely, and the chords would then sag up to 0.2 mm below the drawn surface.
+FREEFORM_ANGULAR = 0.05
+
+
+def freeform_top() -> trimesh.Trimesh:
+    return from_cad(freeform_top_cad(), angular=FREEFORM_ANGULAR)
+
+
+def freeform_bump_plate() -> trimesh.Trimesh:
+    return from_cad(freeform_bump_plate_cad(), angular=FREEFORM_ANGULAR)
+
+
+def freeform_recess_block() -> trimesh.Trimesh:
+    return from_cad(freeform_recess_block_cad(), angular=FREEFORM_ANGULAR)

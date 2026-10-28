@@ -62,13 +62,17 @@ def cell_solid(
     min_feature: float,
     corners: list[Corner] | None = None,
     fixed: list[tuple[np.ndarray, bool]] | None = None,
+    ignore: np.ndarray | None = None,
 ) -> cq.Solid | cq.Compound:
     """Corners are the fillets the base solid leaves sharp. Each plane carries on under its
     fillets to the corner, so it cuts there too, and blocks in a fillet's corner count as
     inside or outside by the sharp corner, not by the rounded scan.
 
     fixed lists faces whose side is already decided: (faces, True) for holes, which are solid
-    until they are drilled, and (faces, False) for bosses, which are added after."""
+    until they are drilled, and (faces, False) for bosses, which are added after.
+
+    ignore lists faces left out when deciding inside from outside, as if they were not there:
+    freeform surfaces, which are cut from or added to the block afterwards."""
     corners = corners or []
     fixed = fixed or []
     blends: dict[int, list[np.ndarray]] = {}
@@ -105,7 +109,7 @@ def cell_solid(
         if len(cells) > MAX_CELLS:
             raise UnsupportedGeometry("This part has too many separate faces to rebuild yet.")
 
-    inside = _inside_cells(mesh, cells, rng, corners, fixed)
+    inside = _inside_cells(mesh, cells, rng, corners, fixed, ignore)
     if not inside:
         raise UnsupportedGeometry("Could not find the inside of the scan.")
     solids = [s for s in (_hull_solid(c) for c in inside) if s is not None]
@@ -172,17 +176,16 @@ def _inside_cells(
     rng: np.random.Generator,
     corners: list[Corner],
     fixed: list[tuple[np.ndarray, bool]],
+    ignore: np.ndarray | None = None,
 ) -> list:
-    surface = trimesh.Trimesh(mesh.vertices, mesh.faces, process=False)
+    keep = np.ones(len(mesh.faces), bool)
+    if ignore is not None:
+        keep[ignore] = False
+    index = np.flatnonzero(keep)
+    surface = trimesh.Trimesh(mesh.vertices, mesh.faces[index], process=False)
     samples, owner = [], []
     for i, cell in enumerate(cells):
-        hull = ConvexHull(cell)
-        lo, hi = cell.min(axis=0), cell.max(axis=0)
-        cand = lo + rng.random((SAMPLES_PER_CELL * 4, 3)) * (hi - lo)
-        ok = ((cand @ hull.equations[:, :3].T + hull.equations[:, 3]) <= 0).all(axis=1)
-        cand = cand[ok][:SAMPLES_PER_CELL]
-        if not len(cand):
-            cand = cell.mean(axis=0)[None]
+        cand = _sample_cell(cell, rng)
         samples.append(cand)
         owner.append(np.full(len(cand), i))
     samples_arr, owner_arr = np.concatenate(samples), np.concatenate(owner)
@@ -191,6 +194,7 @@ def _inside_cells(
     for at in range(0, len(samples_arr), SAMPLE_CHUNK):
         chunk = samples_arr[at : at + SAMPLE_CHUNK]
         closest, _, tri = trimesh.proximity.closest_point(surface, chunk)
+        tri = index[tri]
         # Inside if the nearest bit of surface faces away from the point.
         inside = ((chunk - closest) * mesh.face_normals[tri]).sum(axis=1) < 0
         for c in corners:
@@ -203,6 +207,24 @@ def _inside_cells(
         owner_arr, minlength=len(cells)
     )
     return [c for c, s in zip(cells, share, strict=True) if s > 0.5]
+
+
+def _sample_cell(cell: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """Points spread evenly through a convex cell. Drawn from the tetrahedra between its
+    middle and each hull triangle, by volume, rather than from its bounding box: a thin
+    slab cut at a slant fills little of its box, and would get few samples or none."""
+    hull = ConvexHull(cell)
+    centre = cell.mean(axis=0)
+    tri = cell[hull.simplices]
+    a, b, c = tri[:, 0] - centre, tri[:, 1] - centre, tri[:, 2] - centre
+    volume = np.abs(np.einsum("ij,ij->i", a, np.cross(b, c)))
+    if volume.sum() <= 0:
+        return centre[None]
+    pick = rng.choice(len(tri), SAMPLES_PER_CELL, p=volume / volume.sum())
+    # Uniform in a tetrahedron: sorted uniforms give its barycentric weights.
+    u = np.sort(rng.random((SAMPLES_PER_CELL, 3)), axis=1)
+    w = np.c_[u[:, 0], u[:, 1] - u[:, 0], u[:, 2] - u[:, 1]]
+    return centre + w[:, :1] * a[pick] + w[:, 1:2] * b[pick] + w[:, 2:] * c[pick]
 
 
 def _hull_solid(cell: np.ndarray) -> cq.Solid | None:
