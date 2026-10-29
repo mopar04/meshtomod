@@ -92,10 +92,17 @@ hole pattern. Each step goes into the feature recipe so it stays editable in CAD
   moved to M3)
 - **M2.5 Real-scan readiness**: thin walls patched from measured thickness, open ends closed,
   front/back scans of one part merged, background jobs for big scans.
-- **M3 Freeform + sink/extrude**: B-spline patches, sink/extrude UI, feature recipe.
+- **M3 Freeform + sink/extrude**: M3a cones, spheres and tori (shapes turned about an axis:
+  done), M3b B-spline patches (done: a curved top, a mound, a scoop), then a small step to
+  align a turned part's axis to X, Y or Z (Zac's idea: the axis M3a finds becomes a placement
+  choice, and the original scan frame is kept so it can be undone; done in the geometry, the
+  API option and drawn axes after the production PR),
+  M3c sink/extrude and feature recipe (done in the geometry; the clicks in the viewer and the
+  recipe download after the production PR), M3d thicken (done in the geometry; the options reach
+  the API and viewer after the production PR).
   **Thicken skin** for one-sided scans: wall thickness (default 3 mm), direction (in, out,
-  centred), and edge finish (square, chamfer, or full round = thickness / 2). The ragged scan
-  border is trimmed to a smooth outline first.
+  centred), and edge finish (square, chamfer = thickness / 3, or full round = 0.49 ×
+  thickness). The ragged scan border is trimmed to a smooth outline first.
 - **M4 Editable history**: Onshape FeatureScript and Fusion script from the recipe.
 - **M5 Combine scans**: convert two scans, position them in the viewer (drag and rotate,
   face-to-face and axis snaps, or 3-point alignment), boolean union, then fillet or chamfer the

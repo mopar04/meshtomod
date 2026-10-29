@@ -2,6 +2,151 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-29 (M3c: sink, extrude, feature recipe)
+- **Edits work on the converted solid, not the scan.** The sketch is placed where the user
+  clicked, square to the area-weighted mean normal of the solid's surface under the whole
+  footprint (rays through the footprint, twice, so the normal settles). A single point's
+  normal would tilt the cut on a curved or bumpy face.
+- **Depth from the lowest point, height from the highest.** A sink's floor is the depth below
+  the lowest surface point under the sketch, an extrusion's top the height above the highest.
+  Either way the new face is fully flat with no sliver of the old surface, which is what a
+  person means by "3 mm deep" on a curved face. On a curved face an extrusion starts 0.5 mm
+  inside so it joins cleanly; on a flat one it starts on the face, so nothing hangs below an
+  edge.
+- **Refuse rather than guess.** A sink that would cut the part in two, or an extrusion that
+  doesn't touch it, is refused. A fillet that doesn't fit leaves the edges sharp with a note.
+- **Recipe v1 lists what was found, then the user's edits.** Found steps are marked
+  `replay: false`: the STEP already holds them, and M4 turns them into a parametric history.
+  Sinks and extrusions are `replay: true`: plain sketch-and-extrude steps any CAD tool can
+  redo on the imported STEP. Every position is in the STEP's frame (after placement), so
+  numbers in the recipe match what CAD shows.
+
+## 2026-10-28 (stand a part on its axis)
+- **Any turned or drilled line is an axis to stand on.** Not only a whole turned part's: the
+  report's `axes` also lists turned features, round bodies, bosses and holes, so a plate can
+  be stood on a boss, and a cross hole is there to pick too. Lines that coincide (a
+  counterbore and its hole) are listed once, the turned part's first.
+- **Which end goes down: the one with more flat face.** That is the end it would stand on (a
+  lathe part's base, not its ball end). When the ends tie (a plain rod, or no flat ends) the
+  axis keeps whichever way it already pointed up, so a nearly upright scan isn't flipped.
+- **"axis" is an origin, not a separate switch.** Standing on an axis is a rotation, the same
+  slot as laying flat; where it lands is the origin choice as before, plus "axis": the axis
+  through the origin with the part's bottom on the ground. The biggest wall along the axis is
+  squared to X, as laying flat does.
+
+## 2026-10-28 (M3d: thicken skin)
+- **A skin is a whole scan that is one smooth open sheet.** It is only looked for when the
+  scan isn't closed: every smoothed normal must face the same way as the overall normal (no
+  more than 5% of the area facing away), the biggest border loop must enclose at least 80% of
+  the area seen from that side, and one height-field B-spline (`freeform.fit_surface`) must
+  fit it. Anything else (a box missing its bottom, the top half of a blocky part) goes
+  through the pipeline for closed parts as before.
+- **We build the wall ourselves, not with OpenCASCADE's offset.** `BRepOffset` (cadquery's
+  `Face.thicken`) gave solids whose booleans failed on dense scan edges and whose resewn
+  rebuilds were garbage. Instead: the two faces are the surface and its offset (a height field
+  refitted with 2, 4 or 8 times the spans until it is within 5% of the tolerance), a slab is
+  cut between them, and a ruled side wall along the surface normal at the outline splits off
+  the wall. Every face is a B-spline, and the part passes `isValid()`.
+- **Volume is measured on a fine tessellation.** OpenCASCADE's `Volume()` and `Area()` were
+  off by a few percent on these solids, in its own "precise" mode too. `ConversionResult.
+  volume_mm3` carries the measured value into the report.
+- **The outline is the scan's border, smoothed and pulled in.** Smoothed over the level's
+  smallest feature (2 mm at Functional) with the shrink taken back out, then pulled in until
+  90% of it lies on scanned surface (less the tolerance). Corners round off by about the
+  smoothing; that is the price of a clean edge on a torn border.
+- **Defaults: 3 mm, behind the scanned surface, square edges.** Behind ("in") keeps the
+  scanned face where it was scanned. Chamfer is t/3; "round" is a fillet of 0.49 t, just under
+  t/2 so a thin strip of the side wall stays between the two fillets. With the defaults
+  the note also says to scan the other side if this is one side of a solid part.
+- **Skins fit with one extra step of look-ahead.** Adding spans stops when one step doesn't help;
+  the wave skin needed (4, 3) spans after a (3, 2) that was no better. Look-ahead is only on
+  for skins: turned on for freeform areas it overfitted the curved top.
+
+## 2026-10-28 (M3b: freeform surfaces)
+- **A freeform area is a height field.** Each curved area left over after planes, features
+  and turned shapes is fitted as w = S(u, v) over the plane across it (`freeform.py`), a
+  cubic B-spline. That covers a curved top, a mound on a face and a scoop in a face: the
+  shapes a turntable scan sees from one side. A fully rounded body (a ball, a bottle) is not
+  one height field and is still refused; patching several together is later work.
+- **Few spans, chosen by the scan.** Spans are added (2, 3, 4, 6 ... 24 along the long side)
+  until 99% of the points are within the tolerance, then only while each step cuts the RMS
+  error by 20% or more. Past that the surface would follow noise. The smoothness penalty is
+  only a whisper (1e-5): it carries the surface on straight past the edge, but stronger
+  (1e-3) it flattened real curvature by 0.05 mm.
+- **Poles at the Greville points.** Placing the B-spline's poles there makes the STEP surface
+  exactly the fitted w = S(u, v), with no second fit to CAD.
+- **The edge comes from a boolean, not the scan.** The surface is carried a few triangles
+  past the area's edge and swept into a solid: a mound is added from its base face up, a
+  scoop cut from its base face down, a whole curved top cut off a block. The exact edge where
+  it meets the flat faces is where the solids meet. A mound or scoop's column follows the
+  loop where the surface meets the base face, offset outward; the convex hull is the fallback
+  when that loop crosses itself.
+- **Growing an area: joint refit, then lie-on.** A neighbour joins if a surface through the
+  area and it still fits and it lies on that surface (95% of points within the tolerance,
+  mean normals within 10 degrees). Mean, not median, normals: on a noisy scan small triangles
+  tilt 10 degrees or more each way, but the tilts cancel.
+- **Facet or flat: compare the chord with the noise.** A flat region joins only if the
+  surface fits it clearly better than its own plane. The noise is the same in both fits, so
+  the difference in mean square error is the chord; it must be over 3 times its sampling
+  spread and over 0.02 tolerances. A ratio test (surface RMS under 0.7 of the plane's) failed
+  at 0.05 mm noise, where the noise hides a facet's chord. Flats smaller than a freeform area
+  may be (4 smallest features square) join without the test.
+- **Inside test samples fill each block.** Block samples are now drawn through the block
+  itself, not its bounding box. A thin block cut at a slant fills 1% of its box and was judged
+  by its middle point, which left the curved top's side walls 0.3 mm out on a tilted scan.
+- **Freeform test parts are tessellated finer** (0.05 rad). OpenCASCADE's default left the
+  design meshes' chords sagging up to 0.2 mm under the drawn surface.
+
+## 2026-10-28 (M3a: cones, spheres, tori)
+- **Order of M3** (Claude's call; Zac left order and tech to Claude): M3a revolved surfaces
+  (cones, spheres, tori), M3b freeform B-spline patches, M3c feature recipe and sink/extrude
+  (after the production PR, which touches the API and the app), M3d thicken skin.
+- **Shapes turned about an axis are found as a 2D profile.** Every face on a shape turned
+  about an axis lies on its profile when folded into (height, radius), so cones, cylinders and
+  flat faces become lines there and spheres and tori become circular arcs. A group of curved
+  regions is one shape when the face normals all cross one axis (`revolve.py`). The solid is
+  rebuilt by revolving the fitted outline, so it is exact, and corners come from the pieces'
+  intersections, the same rule as for planes.
+- **Lines, then arcs, then short lines.** Within the tolerance a short line also fits a band
+  of a big ball, and a gentle arc fits a narrow flat plus the edges of the rounds beside it,
+  so the order pieces are looked for in decides the answer. Long lines (at least the smallest
+  feature) go first, arcs second (also at least the smallest feature: a shorter band that
+  turns is a blurred sharp edge), short lines last (down to the smallest chamfer).
+- **Pieces settle by fit, not by order.** After merging, faces at a piece's edge move to the
+  neighbour they lie on and face more closely, and pieces are refitted, until nothing moves.
+  An arc that is then plainly a narrow flat with the edges of rounds beside it becomes the
+  flat; an arc the pieces either side already explain (run on to their corner) is dropped.
+- **Grouping by axis uses heavily smoothed normals** (12 rounds, 60 degree cut-off); the
+  profile uses lightly smoothed ones. Noise tilts raw normals out of the plane through the
+  axis, which made noisy shapes fail the twist test.
+- **An axis square to a flat face wins if it fits.** A free fit is tried only when none of
+  the part's flat faces gives an axis the shape's normals pass through; noise tilted free
+  fits just past the angle snap (0.5 degrees at Precise), leaving the shape on no base.
+- **Faces of a base plane are taken out of the shape.** In a scan the crease where a dome
+  meets the plate is blurred, and its faces otherwise make a sliver of a flat at the foot.
+- **A ball's centre is held on the axis**, its radius rounded, then its height refitted for
+  that radius. A free fit let noise pull the centre off (20.3 for a drawn 20).
+- **Sizes snap to round values first** (whole, then half, then tenth of a mm, within half the
+  tolerance). So the plate's 10.4 mm countersink head reads 10.5. Known and accepted: within
+  the tolerance either is right, and we don't guess the designer's numbers further.
+- **Known limit:** below the smallest feature (2 mm at Functional), a flat between two rounds
+  or a round on a shallow corner may come out as the corner. That is within the tolerance.
+
+## 2026-10-29 (hosting)
+- **A DigitalOcean droplet, not App Platform** (Zac said go ahead with DigitalOcean). Basic
+  Regular 4 vCPU / 8 GB at $48/mo. App Platform needs a dedicated container for 8 GB ($98 for
+  2 vCPU, $156 for 4), caps local disk at 4 GB, runs in a gVisor sandbox (spawned
+  OpenCASCADE processes and memory limits untested there) and has no volumes. The droplet runs
+  the same `docker-compose.prod.yml` CI already builds.
+- **Deploys pull, they aren't pushed.** The server checks `main` every 5 minutes and deploys a
+  commit only after all its GitHub checks pass, never mid-conversion (up to an hour), rolling
+  back if it doesn't come up healthy. The repo is public, so this needs no SSH key in GitHub,
+  no deploy token and no GitHub settings change; merging is deploying. Cost: up to 5 minutes'
+  delay, and anyone who can merge to `main` can deploy (the same people as today).
+- **Nobody logs in to set it up.** The droplet's initialization script runs
+  `deploy/bootstrap.sh` (Docker, swap, key-only SSH, log rotation, the updater). No DigitalOcean
+  connector exists, so Zac creates the droplet and the DNS records; everything else is code.
+
 ## 2026-10-27 (production prep)
 - **Public hosting is the goal now** (Zac asked to push MeshToMod to production). Draft PR only
   until he says merge; nothing is deployed or bought without his yes.

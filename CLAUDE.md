@@ -6,6 +6,7 @@ source of truth: read and update the docs below so any session can pick up the w
 ## Before you start
 1. Read `docs/STATUS.md` for where things stand, then `docs/PLAN.md` for the design.
 2. Check `docs/DECISIONS.md` before changing direction on anything listed there.
+3. List the open PRs, drafts included (see "Who's working on what" below).
 
 ## When you finish a piece of work
 - Update `docs/STATUS.md` (done / in progress / next).
@@ -13,8 +14,34 @@ source of truth: read and update the docs below so any session can pick up the w
 - Keep `docs/PLAN.md` current if the design changed.
 
 ## Roles
-- Zac (mopar04) owns the product. UI/UX discussion happens with Claude as PM in the claude.ai project.
-- Technical build, logistics, roadblocks and ideas: Claude Code threads, via PRs to this repo.
+- Zac (mopar04) owns the product. Merges happen only on his word.
+- Two Claude workspaces write to this repo. The repo and its open PRs keep them in sync:
+  - **Claude app project "Mesh to Mod"**: UI/UX and product discussion with Claude as PM, and
+    any work that needs files on Zac's Mac (scans in `Developer/Nurbsmith/Test Scans`, prints).
+  - **Duet** (Zac's Claude Duet threads): technical build, logistics, roadblocks and the
+    production push, via PRs.
+
+## Who's working on what
+Open PRs are the in-flight list: one place, always current, no merge needed to update it.
+1. Before you start, list open PRs (drafts too). If one touches the files you need, work on
+   other files or ask Zac first. Never two workspaces on the same files at once.
+2. Push your branch and open a draft PR as soon as you start, not when you finish, so the
+   other workspace sees the claim. Start its description with:
+   ```
+   Workspace: Duet | Claude app
+   Touches: main files or folders
+   Status: one line, kept current
+   Handoff: what's done, what's next, what waits on Zac
+   ```
+3. Work on your own branch: `duet/<topic>` or `app/<topic>` when you pick the name; a name
+   your session is given (like `claude/...`) is fine, since the PR says which workspace.
+   Never commit to a branch another workspace's open PR uses.
+4. Update Status and Handoff whenever you stop. Merged or closed takes it off the list.
+5. Shared docs (`docs/STATUS.md`, `docs/DECISIONS.md`) change in the same PR as the work.
+   On a conflict there, merge `main` in and keep both sides.
+6. Local files stay on Zac's Mac: push code, findings and numbers, not raw scans, unless
+   Zac says so.
+7. No GitHub access in your session? Ask Zac what's open before you write to the repo.
 
 ## Layout
 - `backend/meshtomod/`: Python geometry package and FastAPI app
@@ -25,9 +52,15 @@ source of truth: read and update the docs below so any session can pick up the w
   - `brep.py` plane snapping, freeform check, exact solid rebuild from plane intersections
   - `cylinders.py` cylinder fitting: strips of planes grown into hole/boss/fillet patches
   - `features.py` patches to CAD features (hole, boss, fillet, round body), standard sizes
+  - `revolve.py` shapes turned about an axis (cones, spheres, tori) fitted as a 2D profile
+  - `freeform.py` other smooth curved areas as B-spline height fields (curved top, mound, scoop)
+  - `thicken.py` one-sided scans (an open sheet) thickened into a solid wall
   - `cells.py` fallback solid from plane-cut blocks, for scans with gaps and warps
   - `quality.py` scan noise estimate, fit score, deviation colours
-  - `orient.py` placement before export: lay on face, true up, trim flush, origin, up axis
+  - `orient.py` placement before export: lay on face, true up, trim flush, origin, up axis,
+    stand on an axis
+  - `sink.py` the user's sketch sunk into or extruded from the model, square to the surface
+  - `recipe.py` feature recipe JSON: what the model is made of, in designer order
   - `convert.py` the pipeline: repair, quality, decimate, segment, cylinders, snap, rebuild,
     features, score
   - `fixtures.py` synthetic meshes with known answers, plus scanner-like noise
@@ -38,6 +71,7 @@ source of truth: read and update the docs below so any session can pick up the w
 - `frontend/`: React + TypeScript + three.js (react-three-fiber) viewer
 - `docker-compose.yml`: api on :8000, web on :5173 (development)
 - `docker-compose.prod.yml`, `frontend/Caddyfile`, `.env.example`: production (`docs/DEPLOY.md`)
+- `deploy/`: server bootstrap and the auto-updater that deploys green commits on main
 
 ## Commands
 ```sh

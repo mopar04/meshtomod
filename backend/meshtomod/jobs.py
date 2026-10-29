@@ -253,6 +253,11 @@ class JobManager:
         with self._lock:
             return self._jobs.get(job_id)
 
+    def busy(self) -> int:
+        """Jobs queued or running. The deploy updater waits for 0 before restarting."""
+        with self._lock:
+            return sum(1 for j in self._jobs.values() if not j.done)
+
     def position(self, job: Job) -> int | None:
         """How many jobs are ahead of a queued job (0: next up)."""
         with self._lock:

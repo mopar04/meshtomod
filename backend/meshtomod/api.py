@@ -54,7 +54,7 @@ def client_address(request: Request) -> str:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "version": __version__}
+    return {"status": "ok", "version": __version__, "jobs": jobs.busy()}
 
 
 @app.get("/api/tolerances")

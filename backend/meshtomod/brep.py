@@ -142,6 +142,23 @@ def merge_coplanar(
     return merged
 
 
+def curved_regions(regions: list[Region], level: ToleranceLevel) -> set[int]:
+    """Ids of the regions that are strips of a curved surface rather than flat faces: those
+    meeting a neighbour at a shallow angle, and those that bow well beyond the tolerance."""
+    by_id = {r.id: r for r in regions}
+    cos_min = np.cos(np.radians(MIN_CREASE_DEG))
+    cos_parallel = np.cos(np.radians(level.angle_snap_deg))
+    curved: set[int] = set()
+    for r in regions:
+        for nb in r.neighbours:
+            if nb in by_id and cos_parallel > r.plane.normal @ by_id[nb].plane.normal > cos_min:
+                # The smaller of the two is the facet; the bigger is usually a real face.
+                curved.add(min((r, by_id[nb]), key=lambda x: x.area).id)
+        if r.bow_mm > max(CURVED_TOL_RATIO * level.fit_tolerance_mm, WARP_SHARE * np.sqrt(r.area)):
+            curved.add(r.id)
+    return curved
+
+
 def check_supported(
     regions: list[Region], level: ToleranceLevel, unmodelled: float = 0.0, curved_total: float = 0.0
 ) -> str | None:
@@ -158,26 +175,19 @@ def check_supported(
     of all curved patches, so the share is of the whole surface.
     """
     by_id = {r.id: r for r in regions}
-    cos_min = np.cos(np.radians(MIN_CREASE_DEG))
-    cos_parallel = np.cos(np.radians(level.angle_snap_deg))
-    curved: set[int] = set()
-    for r in regions:
-        for nb in r.neighbours:
-            if nb in by_id and cos_parallel > r.plane.normal @ by_id[nb].plane.normal > cos_min:
-                # The smaller of the two is the facet; the bigger is usually a real face.
-                curved.add(min((r, by_id[nb]), key=lambda x: x.area).id)
-        if r.bow_mm > max(CURVED_TOL_RATIO * level.fit_tolerance_mm, WARP_SHARE * np.sqrt(r.area)):
-            curved.add(r.id)
+    curved = curved_regions(regions, level)
     if not curved and not unmodelled:
         return None
     area = sum(by_id[i].area for i in curved) + unmodelled
     total = sum(r.area for r in regions) + curved_total
     if area > FREEFORM_SHARE * total:
         raise UnsupportedGeometry(
-            "This part is largely made of curved surfaces other than holes, round bosses and "
-            "fillets (like a domed or sculpted panel). Freeform surfaces are the next "
-            "milestone."
+            "This part is largely made of curved surfaces this version can't rebuild yet. "
+            "Freeform areas work when each can be seen whole from one side, like a curved "
+            "top, a mound or a scoop; a fully rounded body doesn't yet."
         )
+    if area < 0.005 * total:
+        return None  # a stray facet or two along an edge; not worth a note
     return (
         f"About {100 * area / total:.0f}% of the surface is gently curved and was approximated "
         "with flat faces."

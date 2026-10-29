@@ -276,10 +276,16 @@ def _blend_facets(planes: list[Region], features: list[Feature], level: Toleranc
 
 
 def apply_features(
-    base: cq.Shape, features: list[Feature], planes: list[Region]
+    base: cq.Shape,
+    features: list[Feature],
+    planes: list[Region],
+    adds: list[tuple[str, cq.Shape]] = (),
+    cuts: list[tuple[str, cq.Shape]] = (),
 ) -> tuple[cq.Shape, str | None]:
     """Base solid, then bosses, then fillets, then holes: the order a designer would use.
 
+    adds and cuts are other shapes, by name: turned shapes on the part's faces (a dome, a
+    ring) are added with the bosses, and turned cuts (a countersink) made with the holes.
     A feature that OpenCASCADE cannot apply (a fillet too big for its edge, say) is left out
     and noted, rather than failing the whole part."""
     by_id = {r.id: r for r in planes}
@@ -287,7 +293,7 @@ def apply_features(
     bodies = len(base.Solids())
     failed: list[str] = []
 
-    def attempt(f: Feature, op) -> None:
+    def attempt(kind: str, op) -> None:
         nonlocal solid
         try:
             result = op(solid)
@@ -298,12 +304,14 @@ def apply_features(
                 return
         except Exception:  # OpenCASCADE raises a variety of errors here
             pass
-        failed.append(f.kind)
+        failed.append(kind)
 
     for f in features:
         if f.kind == "boss":
             rod = cylinder_between(f.start - OVERSHOOT_MM * _unit(f.end - f.start), f.end, f.radius)
-            attempt(f, lambda s, rod=rod: s.fuse(rod).clean())
+            attempt(f.kind, lambda s, rod=rod: s.fuse(rod).clean())
+    for kind, shape in adds:
+        attempt(kind, lambda s, shape=shape: s.fuse(shape).clean())
     fillets = [f for f in features if f.kind == "fillet"]
     # Biggest first, keeping each fillet that still works together with those kept so far.
     kept: list[Feature] = []
@@ -325,6 +333,8 @@ def apply_features(
             solid = cut
         else:
             failed += [f.kind for f in chamfers]
+    for kind, shape in cuts:
+        attempt(kind, lambda s, shape=shape: s.cut(shape).clean())
     for f in features:
         if f.kind in ("hole", "slot"):
             d = _unit(f.end - f.start)
@@ -333,7 +343,7 @@ def apply_features(
             tool = cylinder_between(start, end, f.radius) if f.kind == "hole" else None
             if f.kind == "slot":
                 tool = slot_between(start, end, f.span, f.radius)
-            attempt(f, lambda s, tool=tool: s.cut(tool).clean())
+            attempt(f.kind, lambda s, tool=tool: s.cut(tool).clean())
     note = None
     if failed:
         note = f"Could not apply {len(failed)} feature(s) ({', '.join(failed)}); left out."

@@ -7,7 +7,9 @@ client = TestClient(app)
 
 
 def test_health():
-    assert client.get("/api/health").json()["status"] == "ok"
+    body = client.get("/api/health").json()
+    assert body["status"] == "ok"
+    assert body["jobs"] == 0
 
 
 def test_tolerances():

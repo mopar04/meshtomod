@@ -38,89 +38,70 @@ Use dedicated vCPUs if the host offers them: conversions are CPU-bound for minut
 
 ## DigitalOcean, step by step
 
-The pick for launch (prices read 2026-10-27): a **Basic droplet, Regular, 4 vCPU / 8 GB, $48/mo**,
-5 TB transfer included. Backups add 20% ($9.60/mo); the server holds nothing you can't rebuild
-from git and `.env`, so they're optional.
+The pick (prices read on DigitalOcean's pricing page 2026-10-29): a **Basic droplet, Regular
+CPU, 4 vCPU / 8 GB, $48/mo**, 160 GB disk and 5 TB transfer included. Backups add 20%
+($9.60/mo); the server holds nothing that can't be rebuilt from git and `.env`, so they're
+optional. App Platform was ruled out: an 8 GB container there is $98 (2 vCPU) to $156 (4 vCPU)
+a month, with a 4 GB disk cap and a sandboxed runtime (see DECISIONS, 2026-10-29).
 
-### 1. In the DigitalOcean dashboard (about 10 minutes)
+Nobody needs to log in to the server. The droplet's initialization script runs
+`deploy/bootstrap.sh`, which sets the server up and starts the site; after that,
+`deploy/update.sh` deploys new commits on `main` by itself.
 
-1. **Create → Droplets.** Region: San Francisco (SFO3). Image: **Ubuntu 24.04 LTS**. Size: Basic,
-   Regular, **8 GB / 4 CPUs**. Authentication: **SSH key** (add your Mac's `~/.ssh/id_ed25519.pub`;
-   no password). Tick **Monitoring** (free). Hostname: `meshtomod-1`.
-2. **Networking → Firewalls → Create.** Inbound: SSH (TCP 22) from your IP only, HTTP (TCP 80)
-   and HTTPS (TCP 443) from anywhere, and a custom UDP 443 rule from anywhere (HTTP/3). Apply it
-   to `meshtomod-1`. Use this firewall rather than `ufw` on the server: Docker opens published
-   ports straight through `ufw`.
-3. **DNS** (the domains are on Cloudflare): `A` records for the domain,
-   `www` and each redirect domain, pointing at the droplet's IPv4. On Cloudflare, set each to
-   **DNS only** (grey cloud).
+### 1. Create the droplet (about 10 minutes, in the DigitalOcean dashboard)
 
-### 2. On the server (about 15 minutes)
+1. **Create → Droplets.** Region: San Francisco (SFO3). Image: **Ubuntu 24.04 (LTS) x64**.
+   Size: Basic, Regular, **$48/mo (8 GB / 4 CPUs)**.
+2. Authentication: **SSH key** if you have one, otherwise **Password** (a long one, saved in a
+   password manager; day to day you won't need it). The bootstrap turns off password logins
+   over SSH; the dashboard's web console still works.
+3. Tick **Add improved metrics monitoring and alerting** (free).
+4. **Advanced options → Add initialization scripts**, paste:
+   ```sh
+   #!/bin/bash
+   curl -fsSL https://raw.githubusercontent.com/mopar04/meshtomod/main/deploy/bootstrap.sh | bash
+   ```
+5. Hostname `meshtomod-1`, then **Create Droplet** and copy its IPv4 address.
 
-```sh
-# From your Mac: first login as root
-ssh root@DROPLET_IP
+Optional, for defence in depth: **Networking → Firewalls**, inbound TCP 22, 80, 443 and UDP 443,
+applied to the droplet. Only those ports listen anyway (Docker publishes 80 and 443).
 
-# Your own user with sudo and your SSH key; then no more root logins
-adduser --disabled-password --gecos "" meshtomod
-usermod -aG sudo meshtomod
-passwd meshtomod                       # for sudo only; SSH stays key-only
-rsync -a ~/.ssh /home/meshtomod/ && chown -R meshtomod:meshtomod /home/meshtomod/.ssh
-sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
-sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
-systemctl restart ssh
-exit
-```
+### 2. DNS (Cloudflare, about 5 minutes)
 
-```sh
-ssh meshtomod@DROPLET_IP
+For `meshtomod.com` add `A` records `@` and `www` with the droplet's IPv4; for `meshtomodel.com`
+the same two. Set each to **DNS only** (grey cloud): Caddy gets its own certificates, and
+Cloudflare's proxy cuts requests at 100 s and uploads at 100 MB.
 
-# 2 GB swap: headroom so a big scan slows down instead of the kernel killing things
-sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile
-sudo swapon /swapfile && echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+### 3. Wait and check
 
-# Docker Engine and Compose from Docker's own repository
-sudo apt-get update && sudo apt-get install -y ca-certificates curl git
-sudo install -m 0755 -d /etc/apt/keyrings
-sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-sudo chmod a+r /etc/apt/keyrings/docker.asc
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
-  https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
-  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-sudo usermod -aG docker meshtomod && newgrp docker
+The first build takes about 10 minutes. Then `https://meshtomod.com` loads,
+`https://meshtomod.com/api/health` answers, and the other three names redirect to it.
+If it doesn't come up, the dashboard's **Console** shows the setup log:
+`tail -n 50 /var/log/cloud-init-output.log`.
 
-# Ubuntu installs security updates on its own (unattended-upgrades); check it's on:
-systemctl is-enabled unattended-upgrades
-```
+### Doing it by hand instead
 
-### 3. Get the code and start it
-
-The repo is public, so a plain HTTPS clone works:
-
-```sh
-git clone https://github.com/mopar04/meshtomod.git
-```
-
-```sh
-cd meshtomod
-cp .env.example .env && nano .env     # domain, redirect domains, donate link
-docker compose -f docker-compose.prod.yml up -d --build
-docker compose -f docker-compose.prod.yml logs -f web   # watch Caddy get the certificates
-```
-
-Then open the site, convert a test part, and add an uptime check on `https://DOMAIN/api/health`
-(DigitalOcean → Monitoring → Uptime, or any free HTTPS monitor).
+On any Ubuntu 24.04 server, as root: `bash deploy/bootstrap.sh` from a clone, or the `curl`
+line above. Without the updater: `git pull && docker compose -f docker-compose.prod.yml up -d --build`.
 
 ## Updating
 
-```sh
-git pull && docker compose -f docker-compose.prod.yml up -d --build
-```
+Automatic. Every 5 minutes `meshtomod-update.timer` runs `deploy/update.sh`, which:
+
+1. Fetches `main`. Nothing new: done.
+2. Asks GitHub for the commit's checks (public API, no token). It deploys only when every check
+   has finished as success, skipped or neutral; a failed commit is never deployed.
+3. Waits while a conversion is running or queued (`/api/health` reports `jobs`), at most an
+   hour, because a restart drops them.
+4. Rebuilds and restarts, then waits up to 5 minutes for the API healthcheck and Caddy. If
+   either fails, it puts the previous commit back and skips that commit until a newer one lands.
+
+So merging a PR is deploying it. Log: `journalctl -u meshtomod-update`. To pause updates:
+`systemctl stop meshtomod-update.timer`.
 
 A restart drops queued and running jobs (users see an error and convert again); finished
-results survive on the `results` volume until they expire.
+results survive on the `results` volume until they expire. Edits to `.env` on the server stay
+put (it isn't in git); apply them with `docker compose -f docker-compose.prod.yml up -d`.
 
 ## Settings
 

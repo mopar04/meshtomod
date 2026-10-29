@@ -39,6 +39,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Deploy scripts pass shellcheck
+        run: shellcheck deploy/*.sh
       - name: Caddyfile is valid
         run: |
           docker run --rm -v "$PWD/frontend/Caddyfile:/etc/caddy/Caddyfile:ro" \
