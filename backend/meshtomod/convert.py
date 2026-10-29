@@ -21,6 +21,7 @@ from .brep import (
 )
 from .cells import Corner, cell_solid
 from .cylinders import consolidate, find_cylinders, planes_around, shared_lengths
+from .ends import close_flat_ends
 from .features import EDGE_KINDS, Feature, apply_features, cylinder_between, plan_features
 from .freeform import Freeform, find_freeform
 from .orient import TurnAxis, distinct_axes
@@ -42,6 +43,10 @@ PARTIAL_NOTE = (
     "Partial match: the model matches only {:.0f}% of the scan, so parts of it are not "
     "the part. The deviation map shows where (red is furthest off); check those areas "
     "before using the model."
+)
+CLOSED_NOTE = (
+    "The scan was open where a flat face wasn't scanned (the side the part stood on, or an "
+    "end). It was closed flat across the scan's edge there; check that face is right."
 )
 # Dense scans are decimated to about this many triangles before segmentation.
 WORKING_FACES = 60_000
@@ -233,6 +238,8 @@ def convert(
         skin = find_skin(light, working, thickness or ThickenOptions(), np.random.default_rng(0))
         if skin is not None:
             return convert_skin(mesh, skin, scan, level, working, defaulted=thickness is None)
+    # Only the working mesh is closed: the fit is still measured on what was scanned.
+    light, capped = close_flat_ends(light, working.fit_tolerance_mm)
     work = Geo.of(light)
     regions = segment_planes(work, working)
     patch_of, patches = find_cylinders(work, regions, working)
@@ -351,6 +358,7 @@ def convert(
     plausible = fit_score(mesh, dist, working).within_tolerance_pct
     partial = plausible < MIN_PLAUSIBLE_FIT_PCT
     notes = [PARTIAL_NOTE.format(plausible)] if partial else []
+    notes += [CLOSED_NOTE] if capped else []
     return ConversionResult(
         solid,
         mesh,

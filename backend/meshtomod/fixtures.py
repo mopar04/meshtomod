@@ -468,3 +468,24 @@ def ragged(mesh: trimesh.Trimesh, depth: float, seed: int = 0) -> trimesh.Trimes
     out.update_faces(dist > reach)
     out.remove_unreferenced_vertices()
     return out
+
+
+def tape_roll_cad():
+    """A ring like Zac's tape roll: 93 mm across, a 76 mm bore, 48.5 mm tall."""
+    import cadquery as cq
+
+    return cq.Workplane("XY").circle(46.5).circle(38).extrude(48.5)
+
+
+def tape_roll() -> trimesh.Trimesh:
+    return from_cad(tape_roll_cad())
+
+
+def unscanned_base(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """The scan of a part that stood on a turntable: its lowest face, facing down, is missing."""
+    low = mesh.bounds[0, 2]
+    drop = (mesh.triangles_center[:, 2] < low + 0.05) & (mesh.face_normals[:, 2] < -0.99)
+    out = mesh.copy()
+    out.update_faces(~drop)
+    out.remove_unreferenced_vertices()
+    return out

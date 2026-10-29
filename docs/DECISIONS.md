@@ -2,6 +2,19 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-29 (open ends and gappy scans)
+- **An opening whose rim lies flat is closed with that plane** (`ends.py`). A turntable scan
+  never sees the face the part stood on; a tube can miss an end. If the rim is within two
+  tolerances of one plane, the missing face was flat: it is closed exactly at the rim, before
+  segmentation, in the working mesh only (the fit is still scored on what was scanned). Rims
+  on one plane close together as one face with holes, so a tube's end is a ring, never a disc
+  over the bore. A rim that isn't flat (a gap over a corner) is left to the block solid. The
+  report says a face was closed, since nothing scanned backs it up. One-sided skins are
+  decided first and never closed.
+- **Slivers never sink a rebuild.** If the glued fuse of block solids comes back empty, that
+  batch is fused one block at a time and any block that breaks it is left out, up to 0.1% of
+  the volume; past that the scan is refused as before.
+
 ## 2026-10-29 (Zac's calls: partial results, units, donations)
 - **A low match is returned, marked partial, not refused** (Zac). Under 90% of the scan within
   the working tolerance the model still comes back, with `partial: true` in the report and a

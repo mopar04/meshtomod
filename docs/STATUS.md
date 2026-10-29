@@ -165,9 +165,27 @@ _Last updated: 2026-10-29 (partial results, donate pop-up, handoff from the Clau
   in the API or viewer (drawing the axes and picking one), which comes after the production
   PR; the scan frame is kept, so it can always be undone.
 
+- **Thin-wall fixes (2026-10-29):** a standoff or tube (a boss with a bore through it) was
+  dropped whole, because its ring-shaped top touches only the boss and the bore; the thin-wall
+  tray design went from 96.5% to 100% and the standoff plate is now a test part. A scan with
+  gaps near its inside corners crashed the block solid ("Bnd_Box is void", a sliver block a
+  fraction of a cubic millimetre); it now comes back as a partial match.
+
+- **Open ends (2026-10-29, `ends.py`):** a scan with its base never scanned now closes that
+  face exactly at the rim. A tape-roll-like ring (93 × 76 × 48.5) with an open end was
+  refused as "mostly curved"; now 100% with exact volume, clean and at 0.02 and 0.05 mm
+  noise. The open box and holed plate were 0.3 mm too thick at the open side (the block
+  solid stopped at the bounding box); now exact. Not yet tried on Zac's tape roll scan,
+  whose rough edge may not count as flat (trimming ragged rims is next).
+- Found on the way: a perfectly clean, densely subdivided CAD mesh of the standoff plate loses
+  its boss after decimation (90%, partial), while the coarse CAD export and noisy scans give
+  100%. Real scans are noisy, but a dense STL from CAD would hit it.
+
 ## Next (M2.5: real-scan readiness, agreed with Zac)
 - Thin walls: detect wall pairs, measure thickness, patch missing wall areas from it (bin).
-- Open and partial scans: close an open end with a plane; trim ragged rims.
+- Open and partial scans: trim ragged rims so a rough open end counts as flat (a flat open
+  end is closed since 2026-10-29).
+- Dense, perfectly clean CAD meshes: keep a boss through decimation (standoff plate).
 - Merge: try the cap's front and back; check the merged calibration scan's misses (the 3.4
   mm hole, fillets and chamfers that don't apply on the scan).
 - Top-only scans (no underside) are refused: unmodelled partial fillets and the boss add up
@@ -204,8 +222,8 @@ _Last updated: 2026-10-29 (partial results, donate pop-up, handoff from the Clau
 - Finish M3: done (M3a to M3d, the axis step, M3c in PR #18); the viewer side of thicken,
   axes, sink/extrude and the recipe download comes after the production PR.
 - Real-scan readiness (thin walls from measured thickness, keep real open ends open, merge
-  front and back): next, in Duet. The cap's front and back need its two scans in the
-  MeshToMod Scans Drive folder.
+  front and back): in progress in Duet. Flat open ends close (above); thin walls next. The
+  cap's front and back need its two scans in the MeshToMod Scans Drive folder.
 - Click-to-delete stray scan bits in the viewer: after the production PR (it touches App.tsx
   and api.py).
 - Zac: print and scan the next test batch, including a reprint of calibration part #1.
