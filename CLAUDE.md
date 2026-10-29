@@ -64,10 +64,14 @@ Open PRs are the in-flight list: one place, always current, no merge needed to u
   - `convert.py` the pipeline: repair, quality, decimate, segment, cylinders, snap, rebuild,
     features, score
   - `fixtures.py` synthetic meshes with known answers, plus scanner-like noise
+  - `jobs.py` conversion jobs: queue, one spawned process per job, limits, result cleanup
+  - `config.py` server settings from `MESHTOMOD_*` environment variables
   - `api.py` HTTP API
 - `backend/tests/`: pytest suite
 - `frontend/`: React + TypeScript + three.js (react-three-fiber) viewer
-- `docker-compose.yml`: api on :8000, web on :5173
+- `docker-compose.yml`: api on :8000, web on :5173 (development)
+- `docker-compose.prod.yml`, `frontend/Caddyfile`, `.env.example`: production (`docs/DEPLOY.md`)
+- `deploy/`: server bootstrap and the auto-updater that deploys green commits on main
 
 ## Commands
 ```sh

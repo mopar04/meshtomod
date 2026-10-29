@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-29 (M3c sink, extrude and feature recipe)_
+_Last updated: 2026-10-29 (deploy prep on PR #11; M3c sink, extrude and feature recipe)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -165,6 +165,35 @@ _Last updated: 2026-10-29 (M3c sink, extrude and feature recipe)_
   in the API or viewer (drawing the axes and picking one), which comes after the production
   PR; the scan frame is kept, so it can always be undone.
 
+## Production launch (started 2026-10-27, Zac: "push MeshToMod towards production")
+Where the work happens: production work is done from Zac's Claude Duet chat, in PR #11
+(branch `claude/project-thread-9iwv7n`, draft until Zac says merge). Sessions in the Mesh to Mod
+project: read that PR and this section before touching jobs, limits, deploy files or the
+privacy page, and leave notes here or on the PR rather than starting parallel production work.
+
+Done in PR #11:
+- Background jobs (`jobs.py`): `POST /api/jobs` + poll `GET /api/jobs/{id}`; the UI polls and
+  shows its place in the queue. One conversion at a time (configurable), a short queue, each job
+  in a spawned process with a timeout; out-of-memory fails one job, not the server.
+  `/api/convert` still works (waits on the same queue).
+- Limits (`config.py`, `MESHTOMOD_*` env): upload size, triangle count, queue length, one job at
+  a time and 20 per hour per IP, results deleted after 60 min (also after a restart), uploaded
+  scans deleted when the job ends, CORS from env.
+- Production stack: `docker-compose.prod.yml`, Caddy (static app, HTTPS, `/api` proxy, 420 MB
+  body cap, security headers, redirect domains), non-root API container with a healthcheck, no
+  access log. Guide: `docs/DEPLOY.md`. CI validates the Caddyfile and builds both images.
+- Privacy page and a source link in the footer (AGPL).
+
+Still open before a public launch:
+- Done: repo renamed to `mopar04/meshtomod` and public; meshtomod.com and meshtomodel.com
+  registered on Cloudflare.
+- Hosting: DigitalOcean droplet, Basic 4 vCPU / 8 GB, $48/mo (Zac said go ahead 2026-10-29).
+  `deploy/bootstrap.sh` sets the server up from its initialization script; `deploy/update.sh`
+  deploys each green commit on `main` every 5 minutes. Zac: merge PR #11, create the droplet,
+  add the four DNS records (steps in `docs/DEPLOY.md`).
+- Decide: keep `scanner_holder.stl` as a public fixture; default units; donate URL; a contact address on the privacy page.
+- The UI has no way to add the second scan for merging (API only).
+
 ## Next (M2.5: real-scan readiness, agreed with Zac)
 - Thin walls: detect wall pairs, measure thickness, patch missing wall areas from it (bin).
 - Open and partial scans: close an open end with a plane; trim ragged rims.
@@ -174,7 +203,6 @@ _Last updated: 2026-10-29 (M3c sink, extrude and feature recipe)_
   past the 15% freeform limit. Thicken (M3d) only takes smooth sheets, not these: a blocky
   part's top half isn't one height field, so it still needs the other side or a closing face.
 - Fewer spurious planes on warped real faces (RC stand gives about 1,000 faces).
-- Background jobs: a 2M-face scan takes 5 to 10 minutes.
 
 ## Known limits
 - Noise matrix (5 test parts × noise 0 / 0.02 / 0.1 / 0.3 mm × 3 levels): correct up to 0.1 mm
@@ -186,9 +214,8 @@ _Last updated: 2026-10-29 (M3c sink, extrude and feature recipe)_
   along a straight edge).
 - A skin is one height-field sheet with one outline: no holes in it, and its corners round
   off by about the smallest feature size. Rounded edges are slow (fillets on B-splines).
-- Conversion runs inside the request. Results are kept in a temp folder, last 50 only.
+- Jobs live in the API process: a restart drops queued and running jobs. One API process only.
 
 ## Open questions for Zac
 - Default units: mm or inches.
-- Local-only at first, or public hosting from day one.
 - Donate link URL.

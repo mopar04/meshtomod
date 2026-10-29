@@ -50,6 +50,9 @@ function storedUp(): UpAxis {
   }
 }
 const DONATE_URL = import.meta.env.VITE_DONATE_URL as string | undefined;
+// AGPL: people using the hosted app must be able to get its source.
+const SOURCE_URL =
+  (import.meta.env.VITE_SOURCE_URL as string | undefined) || "https://github.com/mopar04/meshtomod";
 
 function storedUnits(): Units | null {
   try {
@@ -172,7 +175,7 @@ export default function App() {
     setStatus(`Converting ${file.name}…`);
     try {
       setPicking(false);
-      const res = await convertMesh(file, level, units, place);
+      const res = await convertMesh(file, level, units, place, setStatus);
       const [stl, ply] = await Promise.all([
         fetchBuffer(res.downloads.model_stl),
         fetchBuffer(res.downloads.deviation_ply),
@@ -423,7 +426,11 @@ export default function App() {
         )}
 
         <footer>
-          Free and open source.{" "}
+          Free and open source (
+          <a href={SOURCE_URL} target="_blank" rel="noreferrer">
+            source
+          </a>
+          ). <a href="/privacy.html">Privacy</a>.{" "}
           {DONATE_URL && (
             <a href={DONATE_URL} target="_blank" rel="noreferrer">
               Support the project

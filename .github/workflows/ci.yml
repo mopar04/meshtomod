@@ -34,3 +34,34 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
+
+  deploy-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy scripts pass shellcheck
+        run: shellcheck deploy/*.sh
+      - name: Caddyfile is valid
+        run: |
+          docker run --rm -v "$PWD/frontend/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            -e MESHTOMOD_DOMAIN=meshtomod.com \
+            -e "MESHTOMOD_REDIRECT_DOMAINS=www.meshtomod.com, meshtomodel.com" \
+            caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Production images build
+        run: |
+          cp .env.example .env
+          docker compose -f docker-compose.prod.yml config --quiet
+          docker compose -f docker-compose.prod.yml build
+      - name: API image starts and answers as a non-root user
+        run: |
+          docker compose -f docker-compose.prod.yml up -d api
+          ok=0
+          for i in $(seq 30); do
+            docker compose -f docker-compose.prod.yml exec -T api python -c \
+              "import urllib.request; print(urllib.request.urlopen('http://localhost:8000/api/health').read())" \
+              && { ok=1; break; }
+            sleep 2
+          done
+          test "$ok" = 1
+          test "$(docker compose -f docker-compose.prod.yml exec -T api id -u)" = "10001"
+          docker compose -f docker-compose.prod.yml down

@@ -29,13 +29,15 @@ cd backend && uv venv -p 3.12 .venv && uv pip install -p .venv -e ".[dev]"
 cd ../frontend && npm install && npm run dev       # UI on :5173, proxies /api
 ```
 
-Set `VITE_DONATE_URL` when building the frontend to show a donate link.
+Set `VITE_DONATE_URL` when building the frontend to show a donate link. To host it publicly, see
+[docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Docs
 
 - [docs/PLAN.md](docs/PLAN.md): architecture, tolerance design, milestones, risks
 - [docs/DECISIONS.md](docs/DECISIONS.md): dated decision log
 - [docs/STATUS.md](docs/STATUS.md): what is done, in progress, next
+- [docs/DEPLOY.md](docs/DEPLOY.md): production hosting, limits, privacy
 - [docs/UI_REFERENCES.md](docs/UI_REFERENCES.md): UI patterns we follow (BumpMesh, ScanRuler)
 - [CLAUDE.md](CLAUDE.md): working notes for Claude and Claude Code sessions
 
