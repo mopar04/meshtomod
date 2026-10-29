@@ -25,7 +25,8 @@ Newest first. One entry per choice a later session should not have to relitigate
   wrong guess on an inch file is 25 times off.
 - **Donations: a Buy Me a Coffee pop-up** (Zac, like CNC Kitchen's tools). Once per visit at
   most, after 90 s on the page, never over another dialog; "Don't remind me again" hides it
-  for good in that browser. No address set, no pop-up. It mounts beside the app in
+  for good in that browser. It opens Zac's page, https://buymeacoffee.com/voxelautocraft (he
+  sent it as http; we use https), and `VITE_DONATE_URL` can override it. It mounts beside the app in
   `main.tsx`, so it doesn't touch App.tsx while the production PR owns it; after that it can
   wait for the first finished conversion instead of a timer.
 

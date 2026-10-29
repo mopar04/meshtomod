@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 
-/** Buy Me a Coffee page, set at build time. With none set the prompt never shows. */
-const DONATE_URL = import.meta.env.VITE_DONATE_URL as string | undefined;
+/** Zac's Buy Me a Coffee page. VITE_DONATE_URL at build time overrides it. */
+const DONATE_URL =
+  (import.meta.env.VITE_DONATE_URL as string | undefined) || "https://buymeacoffee.com/voxelautocraft";
 // Long enough that someone has used the app (a conversion takes about a minute) before it asks.
 const DELAY_MS = 90_000;
 const KEY = "meshtomod.donate";
@@ -30,7 +31,7 @@ export default function DonatePrompt() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (!DONATE_URL || stored() === "never") return;
+    if (stored() === "never") return;
     let timer = 0;
     const tryOpen = () => {
       // Wait while another dialog (the units question) is up.
@@ -41,7 +42,7 @@ export default function DonatePrompt() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  if (!open || !DONATE_URL) return null;
+  if (!open) return null;
   return (
     <div className="modal-backdrop">
       <div className="modal" role="dialog" aria-labelledby="donate-title">

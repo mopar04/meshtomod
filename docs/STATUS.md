@@ -213,8 +213,9 @@ _Last updated: 2026-10-29 (partial results, donate pop-up, handoff from the Clau
 - Default units: mm (already the highlighted choice when a file has no units).
 - Public hosting from day one (the signup itself is in the production PR, #11).
 - Donations: a Buy Me a Coffee pop-up with "Don't remind me again" (done: `DonatePrompt.tsx`,
-  shown once per visit after 90 s, only when `VITE_DONATE_URL` is set). Waits on Zac's Buy Me
-  a Coffee page address.
+  shown once per visit after 90 s). It opens Zac's page, https://buymeacoffee.com/voxelautocraft;
+  `VITE_DONATE_URL` overrides it. The footer link in App.tsx still reads only `VITE_DONATE_URL`,
+  so the production PR's `.env.example` should set it to the same page.
 
 ## Handoff from the Claude app project (2026-10-29), where each item stands
 - Lay flat on a face and centre to origin, through to STEP: done since 2026-10-25 (Placement).
@@ -229,4 +230,4 @@ _Last updated: 2026-10-29 (partial results, donate pop-up, handoff from the Clau
 - Zac: print and scan the next test batch, including a reprint of calibration part #1.
 
 ## Open questions for Zac
-- Buy Me a Coffee page address.
+- None right now.
