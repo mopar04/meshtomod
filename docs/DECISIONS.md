@@ -2,6 +2,19 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-28 (stand a part on its axis)
+- **Any turned or drilled line is an axis to stand on.** Not only a whole turned part's: the
+  report's `axes` also lists turned features, round bodies, bosses and holes, so a plate can
+  be stood on a boss, and a cross hole is there to pick too. Lines that coincide (a
+  counterbore and its hole) are listed once, the turned part's first.
+- **Which end goes down: the one with more flat face.** That is the end it would stand on (a
+  lathe part's base, not its ball end). When the ends tie (a plain rod, or no flat ends) the
+  axis keeps whichever way it already pointed up, so a nearly upright scan isn't flipped.
+- **"axis" is an origin, not a separate switch.** Standing on an axis is a rotation, the same
+  slot as laying flat; where it lands is the origin choice as before, plus "axis": the axis
+  through the origin with the part's bottom on the ground. The biggest wall along the axis is
+  squared to X, as laying flat does.
+
 ## 2026-10-28 (M3d: thicken skin)
 - **A skin is a whole scan that is one smooth open sheet.** It is only looked for when the
   scan isn't closed: every smoothed normal must face the same way as the overall normal (no

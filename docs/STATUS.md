@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-28 (M3d thicken skin)_
+_Last updated: 2026-10-28 (stand a part on its axis)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -139,6 +139,15 @@ _Last updated: 2026-10-28 (M3d thicken skin)_
   origin at bottom centre / box centre / low corner / kept, Z up or Y up, and trim flush
   (cut bumps up to N mm below the base face). The STEP's base face is exactly level and on
   the origin. Tested on tilted CAD parts with and without noise; not yet on Zac's scans.
+- **Stand a part on its axis** (`orient.py`, Zac's idea 2026-10-28): the report lists every
+  axis the model found (a turned part's, then turned features, round bodies, bosses and
+  holes, one per line), and placement can stand the part on one: the axis exactly vertical,
+  the end with more flat face down, the biggest wall along X, and with the new "axis" origin
+  the axis through the origin and the bottom on the ground. On the turned part scanned at an
+  odd angle (clean and 0.02 mm noise) it stands on its Ø30 base with the axis exactly through
+  the origin; the surfaces plate stood on its tapered boss lies flat, long side on X. Not yet
+  in the API or viewer (drawing the axes and picking one), which comes after the production
+  PR; the scan frame is kept, so it can always be undone.
 
 ## Next (M2.5: real-scan readiness, agreed with Zac)
 - Thin walls: detect wall pairs, measure thickness, patch missing wall areas from it (bin).

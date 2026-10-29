@@ -5,7 +5,10 @@ Scans come off the scanner at whatever angle and position the turntable left the
 on (faces of its convex hull it would sit stably on), the user picks one, and the export is
 turned so that face points straight down. The part is then squared up about the vertical so
 its walls run along X and Y, and moved so a chosen point (box centre, bottom centre or the
-low corner) sits on the origin. CAD tools differ on which way is up: Onshape, FreeCAD and
+low corner) sits on the origin. A turned part (or anything with a hole, boss or round body)
+can instead be stood on its axis: the axis points straight up and, with the "axis" origin,
+runs through the origin, so the part can be spun and referenced about it in CAD. CAD tools
+differ on which way is up: Onshape, FreeCAD and
 Shapr3D are Z up; SolidWorks (and Fusion set to Y up) are Y up, so the base lands on XZ.
 
 Frames used here:
@@ -25,7 +28,7 @@ from OCP.BRepBuilderAPI import BRepBuilderAPI_Transform
 from OCP.gp import gp_Trsf
 from scipy.spatial import ConvexHull, QhullError
 
-ORIGINS = ("keep", "center", "bottom", "corner")
+ORIGINS = ("keep", "center", "bottom", "corner", "axis")
 UP_AXES = ("z", "y")
 DOWN = np.array([0.0, 0.0, -1.0])
 
@@ -37,11 +40,59 @@ MIN_FACE_SHARE = 0.01
 MAX_CANDIDATES = 8
 # After converting, the model's own bottom face and walls are made exact when this close.
 SNAP_DEG = 3.0
+# Flat faces this close to an end of the part (as a share of its length along the axis) are
+# what it would stand on at that end.
+END_SHARE = 0.02
+# Ends whose flat faces differ by less than this share are a tie: the axis then keeps the way
+# it already pointed up.
+END_TIE_SHARE = 0.05
+# Two axes are the same line when this parallel and this close (mm).
+SAME_AXIS_DEG = 1.0
+SAME_AXIS_MM = 0.1
 
 # Y up: the scan's up (Z) becomes Y, and the base lands on the XZ plane.
 Z_TO_Y = np.array(
     [[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, -1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]]
 )
+
+
+@dataclass(frozen=True)
+class TurnAxis:
+    """A line the part (or a feature on it) is turned or drilled about, in the frame of the
+    converted solid."""
+
+    point: np.ndarray
+    direction: np.ndarray
+    kind: str
+    """The feature's type: "turned" for a whole turned part, "hole", "boss", "countersink" ..."""
+    diameter_mm: float
+
+    def same_line(self, other: TurnAxis) -> bool:
+        d = self.direction / np.linalg.norm(self.direction)
+        e = other.direction / np.linalg.norm(other.direction)
+        if abs(float(d @ e)) < np.cos(np.radians(SAME_AXIS_DEG)):
+            return False
+        rel = other.point - self.point
+        return float(np.linalg.norm(rel - (rel @ d) * d)) <= SAME_AXIS_MM
+
+    def as_dict(self) -> dict:
+        d = self.direction / np.linalg.norm(self.direction)
+        return {
+            "type": self.kind,
+            "diameter_mm": round(self.diameter_mm, 3),
+            "point": np.round(self.point, 4).tolist(),
+            "direction": np.round(d, 6).tolist(),
+        }
+
+
+def distinct_axes(axes: list[TurnAxis]) -> list[TurnAxis]:
+    """The axes with repeats of one line (a counterbore and its hole, a boss and its bore)
+    dropped; the first of each line is kept."""
+    out: list[TurnAxis] = []
+    for a in axes:
+        if not any(b.same_line(a) for b in out):
+            out.append(a)
+    return out
 
 
 @dataclass
@@ -197,9 +248,44 @@ def true_up(solid: cq.Shape) -> np.ndarray:
     return rotation
 
 
-def anchor_offset(bounds: np.ndarray, origin: str, up: str) -> np.ndarray:
+def axis_rotation(solid: cq.Shape, axis: TurnAxis) -> np.ndarray:
+    """The rotation standing the solid on its axis: the axis straight up (+Z), with the end
+    that has more flat face to stand on at the bottom, and the biggest flat wall along the
+    axis (if any) running along X, as laying flat does. A turned part with a broad base
+    stands on it; a part with no flat end keeps whichever way the axis already pointed up."""
+    d = np.asarray(axis.direction, dtype=float)
+    d = d / np.linalg.norm(d)
+    verts, _ = solid.tessellate(1.0, angularTolerance=0.5)
+    along = np.array([v.toTuple() for v in verts]) @ d
+    lo, hi = float(along.min()), float(along.max())
+    near = END_SHARE * max(hi - lo, 1e-9)
+    cos_snap = np.cos(np.radians(SNAP_DEG))
+    planes = [
+        (np.array(f.normalAt().toTuple()), f.Area(), np.array(f.Center().toTuple()) @ d)
+        for f in solid.Faces()
+        if f.geomType() == "PLANE"
+    ]
+    low = sum(a for n, a, t in planes if n @ d <= -cos_snap and t - lo <= near)
+    high = sum(a for n, a, t in planes if n @ d >= cos_snap and hi - t <= near)
+    if abs(high - low) > END_TIE_SHARE * max(high, low, 1e-9):
+        if high > low:
+            d = -d
+    elif d[2] < 0:
+        d = -d
+    rotation = rotation_between(d, np.array([0.0, 0.0, 1.0]))
+    walls = [(n, a) for n, a, _ in planes if abs(n @ d) < np.sin(np.radians(SNAP_DEG))]
+    if walls:
+        n = rotation @ max(walls, key=lambda w: w[1])[0]
+        rotation = yaw(np.pi / 2 - float(np.arctan2(n[1], n[0]))) @ rotation
+    return rotation
+
+
+def anchor_offset(
+    bounds: np.ndarray, origin: str, up: str, axis_point: np.ndarray | None = None
+) -> np.ndarray:
     """The translation putting the chosen point of an export-frame bounding box (2x3) on the
-    origin: the box centre, the centre of its bottom, or its low corner."""
+    origin: the box centre, the centre of its bottom, or its low corner. For "axis", the
+    vertical axis through axis_point is put through the origin, the part's bottom on it."""
     if origin == "keep":
         return np.zeros(3)
     lo, hi = bounds
@@ -209,6 +295,11 @@ def anchor_offset(bounds: np.ndarray, origin: str, up: str) -> np.ndarray:
         point[vertical] = lo[vertical]
     elif origin == "corner":
         point = lo.copy()
+    elif origin == "axis":
+        if axis_point is None:
+            raise ValueError("The axis origin needs an axis to stand the part on")
+        point = np.array(axis_point, dtype=float)
+        point[vertical] = lo[vertical]
     return -point
 
 
@@ -261,19 +352,28 @@ class Placement:
     up: str
     trimmed_mm: float = 0.0
     note: str | None = None
+    axis: TurnAxis | None = None
+    """The axis the part was stood on, if any (in the converted solid's frame)."""
+    solid_view: np.ndarray | None = None
+    """4x4, the converted solid's frame to the view frame: where its axes are drawn."""
 
     def as_dict(self) -> dict:
-        return {
+        out = {
             "origin": self.origin,
             "up": self.up,
             "matrix": np.round(self.view, 9).tolist(),
             "trimmed_mm": round(self.trimmed_mm, 4),
         }
+        if self.axis is not None:
+            out["axis"] = self.axis.as_dict()
+        return out
 
 
-def check_options(origin: str, up: str, trim_mm: float = 0.0) -> None:
+def check_options(origin: str, up: str, trim_mm: float = 0.0, axis: TurnAxis | None = None) -> None:
     if origin not in ORIGINS:
         raise ValueError(f"Unknown origin {origin!r}; expected one of {list(ORIGINS)}")
+    if origin == "axis" and axis is None:
+        raise ValueError("The axis origin needs an axis to stand the part on")
     if up not in UP_AXES:
         raise ValueError(f"Unknown up axis {up!r}; expected one of {list(UP_AXES)}")
     if not 0.0 <= trim_mm <= 50.0:
@@ -281,22 +381,35 @@ def check_options(origin: str, up: str, trim_mm: float = 0.0) -> None:
 
 
 def place(
-    solid: cq.Shape, laid: np.ndarray | None, origin: str, up: str, trim_mm: float = 0.0
+    solid: cq.Shape,
+    laid: np.ndarray | None,
+    origin: str,
+    up: str,
+    trim_mm: float = 0.0,
+    axis: TurnAxis | None = None,
 ) -> Placement:
     """Where the converted solid goes. laid is the 3x3 rotation the scan was turned by before
     converting (None if it was converted as scanned); the solid is in that turned frame.
-    trim_mm (only when laid flat) cuts bumps up to that deep off the base face."""
-    check_options(origin, up, trim_mm)
+    axis (one of the result's axes) stands the part on that axis instead, whether or not it
+    was laid flat. trim_mm (only when laid flat or stood on an axis) cuts bumps up to that
+    deep off the base face."""
+    check_options(origin, up, trim_mm, axis)
     laid_m = homogeneous(np.eye(3) if laid is None else laid)
-    turn = np.eye(4) if laid is None else homogeneous(true_up(solid))
+    if axis is not None:
+        turn = homogeneous(axis_rotation(solid, axis))
+    else:
+        turn = np.eye(4) if laid is None else homogeneous(true_up(solid))
     level = transform_shape(solid, turn)
     trimmed, note = 0.0, None
-    if laid is not None and trim_mm > 0:
+    if (laid is not None or axis is not None) and trim_mm > 0:
         level, trimmed, note = trim_flush(level, trim_mm)
     to_export = Z_TO_Y if up == "y" else np.eye(4)
     bb = transform_shape(level, to_export).BoundingBox()
     bounds = np.array([[bb.xmin, bb.ymin, bb.zmin], [bb.xmax, bb.ymax, bb.zmax]])
-    shift = homogeneous(np.eye(3), anchor_offset(bounds, origin, up)) @ to_export
+    axis_point = None
+    if axis is not None:
+        axis_point = (to_export @ turn @ np.r_[axis.point, 1.0])[:3]
+    shift = homogeneous(np.eye(3), anchor_offset(bounds, origin, up, axis_point)) @ to_export
     view_shift = np.linalg.inv(to_export) @ shift
     return Placement(
         view=view_shift @ turn @ laid_m,
@@ -307,4 +420,6 @@ def place(
         up=up,
         trimmed_mm=trimmed,
         note=note,
+        axis=axis,
+        solid_view=view_shift @ turn,
     )
