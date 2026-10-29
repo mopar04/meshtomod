@@ -49,6 +49,19 @@ def test_a_gap_that_is_not_flat_is_left_open():
     assert added == 0 and closed is mesh
 
 
+def test_the_flat_opening_closes_while_a_corner_gap_stays_open():
+    mesh = repair(fx.unscanned_base(fx.subdivided(fx.box(), 1.0)))
+    corner = np.array([20.0, 15.0, 10.0])
+    mesh.update_faces(np.linalg.norm(mesh.triangles_center - corner, axis=1) > 6)
+    mesh.remove_unreferenced_vertices()
+    assert len(boundary_loops(mesh)) == 2
+
+    closed, added = close_flat_ends(mesh, TOL)
+    assert added > 0
+    assert len(boundary_loops(closed)) == 1
+    assert closed.is_winding_consistent
+
+
 def test_a_closed_scan_is_untouched():
     mesh = repair(fx.box())
     closed, added = close_flat_ends(mesh, TOL)

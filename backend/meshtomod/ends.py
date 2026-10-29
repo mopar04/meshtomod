@@ -23,7 +23,8 @@ COPLANAR_DEG = 2.0
 
 def close_flat_ends(mesh: trimesh.Trimesh, tol: float) -> tuple[trimesh.Trimesh, int]:
     """The mesh with its flat openings closed, and how many faces were added to close them.
-    The mesh comes back unchanged if closing them doesn't leave it closed all round."""
+    Openings that aren't flat stay open. A cap that doesn't meet its rim edge for edge is
+    left out, and the mesh comes back unchanged if the caps don't join it cleanly."""
     flat = []
     for loop in boundary_loops(mesh):
         pts = mesh.vertices[loop]
@@ -48,38 +49,47 @@ def close_flat_ends(mesh: trimesh.Trimesh, tol: float) -> tuple[trimesh.Trimesh,
             p = vertices[loop]
             vertices[loop] = p - np.outer(p @ normal - offset, normal)
         for outer, holes in _faces(loops, vertices, normal):
-            caps.append(
-                (
-                    np.concatenate([outer, *holes]),
-                    *_cap(vertices[outer], [vertices[h] for h in holes]),
-                )
-            )
-    if not caps:
-        return mesh, 0
+            cap = _cap(vertices[outer], [vertices[h] for h in holes])
+            if cap is not None:
+                caps.append(([outer, *holes], *cap))
 
     # Each cap's rim points are the scan's own rim points; its new inside points go last.
-    rim_edges = {tuple(e) for e in _directed(mesh.faces)}
+    scan_edges = {tuple(e) for e in _directed(mesh.faces)}
     faces = [mesh.faces]
-    for rim, points, tris in caps:
-        index = {tuple(np.round(vertices[i], 9)): int(i) for i in rim}
-        ids = []
-        for point in points:
-            key = tuple(np.round(point, 9))
-            if key not in index:
-                index[key] = len(vertices)
-                vertices = np.vstack([vertices, point])
-            ids.append(index[key])
+    for rims, points, tris in caps:
+        index = {tuple(np.round(vertices[i], 9)): int(i) for rim in rims for i in rim}
+        ids = [index.get(tuple(np.round(p, 9)), -1) for p in points]
+        fresh = [k for k, i in enumerate(ids) if i < 0]
+        for k, i in zip(fresh, range(len(vertices), len(vertices) + len(fresh)), strict=True):
+            ids[k] = i
         cap = np.asarray(ids)[tris]
+        # The cap's own border must be its rims, edge for edge, or it would leave a crack.
+        if _border(cap) != {e for rim in rims for e in _loop_edges(rim)}:
+            continue
+        vertices = np.vstack([vertices, points[fresh]])
         # A closed mesh runs each edge once each way: the cap runs its rim against the scan.
-        if any(tuple(e) in rim_edges for e in _directed(cap)):
+        if any(tuple(e) in scan_edges for e in _directed(cap)):
             cap = cap[:, ::-1]
         faces.append(cap)
-    closed = trimesh.Trimesh(vertices, np.vstack(faces), process=False)
-    if not (closed.is_watertight and closed.is_winding_consistent):
+    if len(faces) == 1:
         return mesh, 0
-    if closed.volume < 0:
+    closed = trimesh.Trimesh(vertices, np.vstack(faces), process=False)
+    # Every edge on at most two faces, running once each way.
+    directed = _directed(closed.faces)
+    if len(np.unique(directed, axis=0)) < len(directed):
+        return mesh, 0
+    if closed.is_watertight and closed.volume < 0:
         closed.invert()
     return closed, sum(len(f) for f in faces[1:])
+
+
+def _loop_edges(loop: np.ndarray) -> set[tuple[int, int]]:
+    return {tuple(sorted(e)) for e in zip(loop.tolist(), np.roll(loop, -1).tolist(), strict=True)}
+
+
+def _border(faces: np.ndarray) -> set[tuple[int, int]]:
+    edges, counts = np.unique(np.sort(_directed(faces), axis=1), axis=0, return_counts=True)
+    return {tuple(e) for e in edges[counts == 1].tolist()}
 
 
 def _directed(faces: np.ndarray) -> np.ndarray:
@@ -170,10 +180,18 @@ def _inside(point: np.ndarray, polygon: np.ndarray) -> bool:
     return bool(np.count_nonzero(crosses & (x < at)) % 2)
 
 
-def _cap(outer: np.ndarray, holes: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+def _cap(outer: np.ndarray, holes: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray] | None:
+    """The flat face inside the rims as points and triangles, or None if it can't be made
+    (a rim too small or too thin to hold a face)."""
+
     def wire(points: np.ndarray) -> cq.Wire:
         return cq.Wire.makePolygon([cq.Vector(*p) for p in points], close=True)
 
-    face = cq.Face.makeFromWires(wire(outer), [wire(h) for h in holes])
-    verts, tris = face.tessellate(1.0, 0.5)
-    return np.array([v.toTuple() for v in verts]), np.array(tris)
+    try:
+        face = cq.Face.makeFromWires(wire(outer), [wire(h) for h in holes])
+        verts, tris = face.tessellate(1.0, 0.5)
+    except Exception:  # OpenCASCADE refuses degenerate outlines in several ways
+        return None
+    if not tris:
+        return None
+    return np.array([v.toTuple() for v in verts]), np.array(tris, dtype=int)
