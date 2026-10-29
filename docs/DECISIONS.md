@@ -2,6 +2,25 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-29 (M3c: sink, extrude, feature recipe)
+- **Edits work on the converted solid, not the scan.** The sketch is placed where the user
+  clicked, square to the area-weighted mean normal of the solid's surface under the whole
+  footprint (rays through the footprint, twice, so the normal settles). A single point's
+  normal would tilt the cut on a curved or bumpy face.
+- **Depth from the lowest point, height from the highest.** A sink's floor is the depth below
+  the lowest surface point under the sketch, an extrusion's top the height above the highest.
+  Either way the new face is fully flat with no sliver of the old surface, which is what a
+  person means by "3 mm deep" on a curved face. On a curved face an extrusion starts 0.5 mm
+  inside so it joins cleanly; on a flat one it starts on the face, so nothing hangs below an
+  edge.
+- **Refuse rather than guess.** A sink that would cut the part in two, or an extrusion that
+  doesn't touch it, is refused. A fillet that doesn't fit leaves the edges sharp with a note.
+- **Recipe v1 lists what was found, then the user's edits.** Found steps are marked
+  `replay: false`: the STEP already holds them, and M4 turns them into a parametric history.
+  Sinks and extrusions are `replay: true`: plain sketch-and-extrude steps any CAD tool can
+  redo on the imported STEP. Every position is in the STEP's frame (after placement), so
+  numbers in the recipe match what CAD shows.
+
 ## 2026-10-28 (stand a part on its axis)
 - **Any turned or drilled line is an axis to stand on.** Not only a whole turned part's: the
   report's `axes` also lists turned features, round bodies, bosses and holes, so a plate can

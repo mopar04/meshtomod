@@ -97,7 +97,8 @@ hole pattern. Each step goes into the feature recipe so it stays editable in CAD
   align a turned part's axis to X, Y or Z (Zac's idea: the axis M3a finds becomes a placement
   choice, and the original scan frame is kept so it can be undone; done in the geometry, the
   API option and drawn axes after the production PR),
-  M3c sink/extrude UI and feature recipe, M3d thicken (done in the geometry; the options reach
+  M3c sink/extrude and feature recipe (done in the geometry; the clicks in the viewer and the
+  recipe download after the production PR), M3d thicken (done in the geometry; the options reach
   the API and viewer after the production PR).
   **Thicken skin** for one-sided scans: wall thickness (default 3 mm), direction (in, out,
   centred), and edge finish (square, chamfer = thickness / 3, or full round = 0.49 ×
