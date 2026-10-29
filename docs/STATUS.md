@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-28 (stand a part on its axis)_
+_Last updated: 2026-10-29 (M3c sink, extrude and feature recipe)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -69,6 +69,22 @@ _Last updated: 2026-10-28 (stand a part on its axis)_
   The options are in the code but not yet in the API or viewer (after the production PR); for
   now every skin gets the defaults and a note saying so. Not yet tried on Zac's wave skin
   scan.
+
+- **M3c sink, extrude and feature recipe** (geometry; the UI comes after the production PR):
+  - `sink.py`: the user's sketch (rectangle, rounded rectangle, circle or slot, turned to any
+    angle) placed at a point on the model, square to the average surface under its footprint,
+    then cut in (sink) or added on (extrude) with a flat floor or top and an optional fillet
+    on its edges. On a curved face the floor is the depth below the lowest point under the
+    sketch, and the top the height above the highest, so neither leaves a sliver of the old
+    surface. A sink that would split the part, or an extrusion that misses it, is refused;
+    one hanging past an edge, or a fillet that doesn't fit, gets a note. Tested on a box's
+    top and side, a cylinder's side and the mouse-like freeform top, with exact volumes.
+  - `recipe.py`: the recipe JSON beside the STEP. Every step the conversion found, in the
+    order a designer would make them (turned body, round body, bosses, turned and freeform
+    adds, fillets and chamfers, holes and slots, turned cuts), with the positions and sizes
+    CAD needs: hole and boss axes, the two planes a fillet joins, a turned shape's profile as
+    lines and arcs in a plane through its axis. Then the user's sinks and extrusions, marked
+    to replay. Positions follow the placement, so they match the STEP.
 
 ## Real scans tried (Zac's, in `Developer/Nurbsmith/Test Scans`)
 - Scale checks out: tape roll 92.5/76.8/48.5 vs 93/76/48.5; cap 102.2–102.8 vs 102.

@@ -57,7 +57,10 @@ Open PRs are the in-flight list: one place, always current, no merge needed to u
   - `thicken.py` one-sided scans (an open sheet) thickened into a solid wall
   - `cells.py` fallback solid from plane-cut blocks, for scans with gaps and warps
   - `quality.py` scan noise estimate, fit score, deviation colours
-  - `orient.py` placement before export: lay on face, true up, trim flush, origin, up axis
+  - `orient.py` placement before export: lay on face, true up, trim flush, origin, up axis,
+    stand on an axis
+  - `sink.py` the user's sketch sunk into or extruded from the model, square to the surface
+  - `recipe.py` feature recipe JSON: what the model is made of, in designer order
   - `convert.py` the pipeline: repair, quality, decimate, segment, cylinders, snap, rebuild,
     features, score
   - `fixtures.py` synthetic meshes with known answers, plus scanner-like noise
