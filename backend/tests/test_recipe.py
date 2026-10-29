@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+import trimesh
 
 from meshtomod import fixtures as fx
 from meshtomod.convert import convert
@@ -10,12 +11,25 @@ from meshtomod.sink import Edit, Sketch, apply_edit
 from meshtomod.tolerance import LEVELS
 
 CONVERTED = {}
+SEED = 3
 
 
-def converted(make):
-    if make not in CONVERTED:
-        CONVERTED[make] = convert(make(), LEVELS["functional"])
-    return CONVERTED[make]
+def converted(make, noisy=False):
+    """The part converted from its design mesh, or from a dense noisy scan of it turned to an
+    odd angle (the one test_features checks fillets on)."""
+    if (make, noisy) not in CONVERTED:
+        mesh = make()
+        if noisy:
+            mesh = fx.rotated(fx.add_noise(fx.subdivided(mesh, 1.0), 0.05, seed=SEED), SEED)
+        CONVERTED[make, noisy] = convert(mesh, LEVELS["functional"])
+    return CONVERTED[make, noisy]
+
+
+def unturn():
+    """Takes a noisy scan's solid back to the design's frame: the inverse of the turn
+    fixtures.rotated applied, standing in for a placement."""
+    turn = trimesh.transformations.random_rotation_matrix(np.random.default_rng(SEED).random(3))
+    return np.linalg.inv(turn)
 
 
 def shift(x=0.0, y=0.0, z=0.0, turn_deg=0.0):
@@ -54,8 +68,10 @@ def test_positions_follow_the_placement():
 
 
 def test_fillets_name_the_planes_they_join():
-    plain = build_recipe(converted(fx.filleted_block))
-    moved = build_recipe(converted(fx.filleted_block), matrix=shift(x=10))
+    # From a noisy scan turned to an odd angle, with the turn undone by the placement.
+    result = converted(fx.filleted_block, noisy=True)
+    plain = build_recipe(result, matrix=unturn())
+    moved = build_recipe(result, matrix=shift(x=10) @ unturn())
     fillets = of_type(plain, "fillet")
     assert len(fillets) == 4 and all(f["radius_mm"] == pytest.approx(5.0) for f in fillets)
     for fillet, after in zip(fillets, of_type(moved, "fillet"), strict=True):
@@ -72,9 +88,9 @@ def test_fillets_name_the_planes_they_join():
 
 def test_designer_order():
     # The bracket: the inside fillet before the holes.
-    kinds = [s["type"] for s in build_recipe(converted(fx.bracket))["steps"]]
+    kinds = [s["type"] for s in build_recipe(converted(fx.bracket, noisy=True))["steps"]]
     assert kinds == ["fillet", "hole", "hole"]
-    kinds = [s["type"] for s in build_recipe(converted(fx.boss_plate))["steps"]]
+    kinds = [s["type"] for s in build_recipe(converted(fx.boss_plate, noisy=True))["steps"]]
     assert kinds == ["boss"]
 
 
