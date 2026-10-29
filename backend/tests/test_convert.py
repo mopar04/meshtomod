@@ -89,3 +89,16 @@ def test_step_export_of_converted_part(tmp_path):
     assert shape.isValid()
     assert face_type_counts(shape) == {"PLANE": 10}
     assert shape.Volume() == pytest.approx(result.solid.Volume(), rel=1e-6)
+
+
+def test_low_match_is_returned_as_partial(monkeypatch):
+    # Below the plausible match the model still comes back, flagged, with the warning first
+    # among the notes so the viewer shows it before anything else.
+    good = convert(fx.box(), LEVELS["functional"])
+    assert not good.partial and good.report()["partial"] is False
+    monkeypatch.setattr("meshtomod.convert.MIN_PLAUSIBLE_FIT_PCT", 100.5)
+    result = convert(fx.box(), LEVELS["functional"])
+    report = result.report()
+    assert result.partial and report["partial"] is True
+    assert report["notes"][0].startswith("Partial match: the model matches only 100%")
+    assert result.solid.isValid()

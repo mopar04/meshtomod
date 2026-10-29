@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-29 (M3c sink, extrude and feature recipe)_
+_Last updated: 2026-10-29 (partial results, donate pop-up, handoff from the Claude app project)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -188,7 +188,27 @@ _Last updated: 2026-10-29 (M3c sink, extrude and feature recipe)_
   off by about the smallest feature size. Rounded edges are slow (fillets on B-splines).
 - Conversion runs inside the request. Results are kept in a temp folder, last 50 only.
 
+## Zac's calls (2026-10-29)
+- Low-match results come back marked partial, not refused (done: `partial` in the report and
+  a warning first among the notes; the viewer shows it with the notes until a badge lands
+  after the production PR).
+- Default units: mm (already the highlighted choice when a file has no units).
+- Public hosting from day one (the signup itself is in the production PR, #11).
+- Donations: a Buy Me a Coffee pop-up with "Don't remind me again" (done: `DonatePrompt.tsx`,
+  shown once per visit after 90 s, only when `VITE_DONATE_URL` is set). Waits on Zac's Buy Me
+  a Coffee page address.
+
+## Handoff from the Claude app project (2026-10-29), where each item stands
+- Lay flat on a face and centre to origin, through to STEP: done since 2026-10-25 (Placement).
+- Low-fit results: decided and done (above).
+- Finish M3: done (M3a to M3d, the axis step, M3c in PR #18); the viewer side of thicken,
+  axes, sink/extrude and the recipe download comes after the production PR.
+- Real-scan readiness (thin walls from measured thickness, keep real open ends open, merge
+  front and back): next, in Duet. The cap's front and back need its two scans in the
+  MeshToMod Scans Drive folder.
+- Click-to-delete stray scan bits in the viewer: after the production PR (it touches App.tsx
+  and api.py).
+- Zac: print and scan the next test batch, including a reprint of calibration part #1.
+
 ## Open questions for Zac
-- Default units: mm or inches.
-- Local-only at first, or public hosting from day one.
-- Donate link URL.
+- Buy Me a Coffee page address.

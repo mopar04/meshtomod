@@ -35,8 +35,14 @@ __all__ = ["ConversionResult", "ThickenOptions", "UnsupportedGeometry", "convert
 
 MIN_FEATURE_TOLS = 5.0
 LOOSE_PIECE_SHARE = 0.1
-# Below this share of the scan within the working tolerance, the model is not the part.
+# Below this share of the scan within the working tolerance, the model is only part of the
+# part: it is still returned, marked partial, so the deviation map shows where it misses.
 MIN_PLAUSIBLE_FIT_PCT = 90.0
+PARTIAL_NOTE = (
+    "Partial match: the model matches only {:.0f}% of the scan, so parts of it are not "
+    "the part. The deviation map shows where (red is furthest off); check those areas "
+    "before using the model."
+)
 # Dense scans are decimated to about this many triangles before segmentation.
 WORKING_FACES = 60_000
 MIN_WORKING_FACES = 5_000
@@ -69,6 +75,8 @@ class ConversionResult:
     volume_mm3: float | None = None
     """Measured from a fine triangulation where OpenCASCADE's own integration is unreliable
     (a thickened skin's long B-spline edges throw it off by a few percent)."""
+    partial: bool = False
+    """Matches under MIN_PLAUSIBLE_FIT_PCT of the scan: returned with a warning, not refused."""
 
     def report(self) -> dict:
         bb = self.solid.BoundingBox()
@@ -86,6 +94,7 @@ class ConversionResult:
             + [f.as_dict() for f in self.freeform]
             + [f.as_dict() for f in self.features if f.kind != "sharp"],
             "notes": self.notes,
+            "partial": self.partial,
             "axes": [a.as_dict() for a in self.axes()],
         }
 
@@ -338,13 +347,10 @@ def convert(
     base = apply_freeform(base, freeform)
     solid, failed = apply_features(base, features, planes, adds, cuts)
     dist = deviations(mesh, solid, working.fit_tolerance_mm)
-    # Never hand back a model that plainly is not the part.
+    # A model that misses much of the scan is still handed back, but never silently.
     plausible = fit_score(mesh, dist, working).within_tolerance_pct
-    if plausible < MIN_PLAUSIBLE_FIT_PCT:
-        raise UnsupportedGeometry(
-            f"The rebuilt model only matches {plausible:.0f}% of the scan, so it was not "
-            "returned. This part has shapes this version can't model yet."
-        )
+    partial = plausible < MIN_PLAUSIBLE_FIT_PCT
+    notes = [PARTIAL_NOTE.format(plausible)] if partial else []
     return ConversionResult(
         solid,
         mesh,
@@ -353,9 +359,10 @@ def convert(
         fit_score(mesh, dist, level),
         dist,
         features,
-        [n for n in (note, skipped, failed) if n],
+        notes + [n for n in (note, skipped, failed) if n],
         revolved,
         freeform,
+        partial=partial,
     )
 
 
@@ -372,11 +379,7 @@ def convert_skin(
     solid, sheet = thicken(skin, working.fit_tolerance_mm)
     dist = deviations(mesh, sheet, working.fit_tolerance_mm)
     plausible = fit_score(mesh, dist, working).within_tolerance_pct
-    if plausible < MIN_PLAUSIBLE_FIT_PCT:
-        raise UnsupportedGeometry(
-            f"The smooth surface only matches {plausible:.0f}% of this one-sided scan, so no "
-            "wall was made from it."
-        )
+    partial = plausible < MIN_PLAUSIBLE_FIT_PCT
     o = skin.options
     side = {
         "in": "behind the scanned surface",
@@ -403,9 +406,10 @@ def convert_skin(
         scan,
         fit_score(mesh, dist, level),
         dist,
-        notes=[note],
+        notes=([PARTIAL_NOTE.format(plausible)] if partial else []) + [note],
         skin=skin,
         volume_mm3=solid_volume(solid, working.fit_tolerance_mm),
+        partial=partial,
     )
 
 

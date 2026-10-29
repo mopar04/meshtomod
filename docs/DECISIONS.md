@@ -2,6 +2,20 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-29 (Zac's calls: partial results, units, donations)
+- **A low match is returned, marked partial, not refused** (Zac). Under 90% of the scan within
+  the working tolerance the model still comes back, with `partial: true` in the report and a
+  warning first among the notes pointing at the deviation map. Applies to one-sided skins too.
+  Other refusals stay: a curved part we can't model yet, scans that can't be merged, edits
+  that would split the part.
+- **mm is the default unit** (Zac). Files without units still ask, with mm highlighted: a
+  wrong guess on an inch file is 25 times off.
+- **Donations: a Buy Me a Coffee pop-up** (Zac, like CNC Kitchen's tools). Once per visit at
+  most, after 90 s on the page, never over another dialog; "Don't remind me again" hides it
+  for good in that browser. No address set, no pop-up. It mounts beside the app in
+  `main.tsx`, so it doesn't touch App.tsx while the production PR owns it; after that it can
+  wait for the first finished conversion instead of a timer.
+
 ## 2026-10-29 (M3c: sink, extrude, feature recipe)
 - **Edits work on the converted solid, not the scan.** The sketch is placed where the user
   clicked, square to the area-weighted mean normal of the solid's surface under the whole
