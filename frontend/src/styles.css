@@ -65,3 +65,12 @@ footer a { color: #7fb0ff; }
 .trim { display: flex; gap: 6px; align-items: center; color: var(--muted); }
 .trim input { width: 80px; padding: 6px 8px; border-radius: 6px; border: 1px solid #3a424d; background: #232830; color: inherit; font: inherit; }
 .hint { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); background: #15181dcc; padding: 8px 12px; border-radius: 8px; font-size: 13px; }
+
+/* The conversion in progress */
+.job { margin-top: 12px; font-size: 13px; }
+.job-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.job-name { word-break: break-word; }
+.job-bar { height: 6px; margin: 6px 0; border-radius: 3px; background: #2a3039; overflow: hidden; }
+.job-bar > div { height: 100%; background: var(--accent); transition: width 0.6s ease; }
+.job .note { margin-top: 6px; }
+.button.disabled { opacity: 0.5; cursor: default; pointer-events: none; }

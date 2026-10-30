@@ -117,6 +117,7 @@ All in `.env` (see `.env.example`); the API reads `MESHTOMOD_*` variables
 | `MESHTOMOD_JOB_TIMEOUT_S` | 900 | A job running longer is killed (504). |
 | `MESHTOMOD_JOB_MEMORY_MB` | 0 (off) | Per-job memory cap; fails one job instead of the server. |
 | `MESHTOMOD_JOBS_PER_CLIENT_HOUR` | 20 | Per IP address (429 after). One job at a time each. |
+| `MESHTOMOD_JOB_ABANDON_S` | 180 | A queued or running job no page has checked on for this long is stopped (the page closed). 0: never. |
 | `MESHTOMOD_RESULT_TTL_MIN` | 60 | Results are deleted after this. The privacy page says one hour. |
 | `MESHTOMOD_CLIENT_IP_HEADER` | X-Real-IP in prod | Where the client address comes from behind Caddy. |
 

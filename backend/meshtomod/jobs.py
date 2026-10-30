@@ -204,9 +204,14 @@ _TOO_BIG = "This scan needs more memory than the server has. Decimate it and try
 
 STOPPED_BY_USER = "Stopped: you cancelled this conversion."
 STOPPED_UNWATCHED = (
-    "Stopped because the page that started it was closed for more than {} minutes. "
+    "Stopped because the page that started it was closed for more than {}. "
     "Convert again to restart it."
 )
+
+
+def _minutes(seconds: int) -> str:
+    n = max(1, round(seconds / 60))
+    return f"{n} minute{'s' if n != 1 else ''}"
 
 
 @dataclass
@@ -296,8 +301,8 @@ class JobManager:
     def _one_at_a_time(self) -> str:
         message = "You already have a scan converting. Cancel it on the page that started it"
         if self.settings.job_abandon_s > 0:
-            minutes = max(1, round(self.settings.job_abandon_s / 60))
-            return f"{message}, or close that page and it stops within {minutes} minutes."
+            when = _minutes(self.settings.job_abandon_s)
+            return f"{message}, or close that page and it stops within {when}."
         return f"{message}, or wait for it to finish."
 
     def get(self, job_id: str) -> Job | None:
@@ -317,7 +322,10 @@ class JobManager:
         job = self.get(job_id)
         if job is not None:
             self.touch(job)
-            return job.as_dict(self.position(job))
+            body = job.as_dict(self.position(job))
+            if not job.done and self.settings.job_abandon_s > 0:
+                body["unwatched_stop_s"] = self.settings.job_abandon_s
+            return body
         if not JOB_ID.match(job_id):
             return None
         try:
@@ -367,7 +375,7 @@ class JobManager:
         cutoff = (now or time.time()) - limit
         with self._lock:
             stale = [j.id for j in self._jobs.values() if not j.done and j.seen < cutoff]
-        reason = STOPPED_UNWATCHED.format(max(1, round(limit / 60)))
+        reason = STOPPED_UNWATCHED.format(_minutes(limit))
         for job_id in stale:
             self.cancel(job_id, reason)
         return len(stale)
