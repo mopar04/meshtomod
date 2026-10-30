@@ -16,6 +16,8 @@ PARTS = {
                        [("fillet", 5.0)] * 4),
     "boss_plate": (fx.boss_plate, fx.boss_plate_cad, {"PLANE": 7, "CYLINDER": 1},
                    [("boss", 16.0)]),
+    "standoff_plate": (fx.standoff_plate, fx.standoff_plate_cad, {"PLANE": 7, "CYLINDER": 2},
+                       [("boss", 12.0), ("hole", 6.0)]),
     "blind_hole_block": (fx.blind_hole_block, fx.blind_hole_block_cad,
                          {"PLANE": 7, "CYLINDER": 1}, [("hole", 10.0)]),
     "bracket": (fx.bracket, fx.bracket_cad, {"PLANE": 8, "CYLINDER": 3},

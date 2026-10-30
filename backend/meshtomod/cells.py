@@ -36,6 +36,8 @@ MAX_CELLS = 20_000
 MIN_BODY_SHARE = 0.05
 # Blocks fused per round.
 FUSE_BATCH = 16
+# Sliver blocks that break a fuse are left out, up to this share of the volume.
+MAX_DROPPED_SHARE = 1e-3
 
 
 @dataclass
@@ -250,13 +252,40 @@ def _fuse_all(solids: list[cq.Solid]) -> cq.Shape:
     """Fuse the blocks a batch at a time, merging faces after each round. One big fuse of
     thousands of blocks takes many gigabytes; the blocks only touch, never overlap, so the
     glue option applies and small rounds stay light."""
+    total = sum(s.Volume() for s in solids)
+    dropped: list[float] = []
     shapes: list[cq.Shape] = list(solids)
     while len(shapes) > 1:
         shapes = [
-            _unify(group[0].fuse(*group[1:], glue=True)) if len(group) > 1 else group[0]
+            _fuse_group(group, dropped) if len(group) > 1 else group[0]
             for group in (shapes[i : i + FUSE_BATCH] for i in range(0, len(shapes), FUSE_BATCH))
         ]
+    if sum(dropped) > MAX_DROPPED_SHARE * total:
+        raise UnsupportedGeometry("Rebuilt solid is not valid.")
     return _unify(shapes[0])
+
+
+def _fuse_group(group: list[cq.Shape], dropped: list[float]) -> cq.Shape:
+    """Glue is fast but trusts the blocks to fit together cleanly. On a scan with gaps a
+    sliver block can break the glued fuse, which then comes back empty. Fuse that batch one
+    block at a time instead, leaving out any sliver that breaks it (noted in dropped)."""
+    fused = group[0].fuse(*group[1:], glue=True)
+    if not _empty(fused):
+        return _unify(fused)
+    fused = None
+    for block in sorted(group, key=lambda b: -b.Volume()):
+        joined = block if fused is None else fused.fuse(block)
+        if _empty(joined):
+            dropped.append(block.Volume())
+        else:
+            fused = joined
+    if fused is None:
+        raise UnsupportedGeometry("Rebuilt solid is not valid.")
+    return _unify(fused)
+
+
+def _empty(shape: cq.Shape) -> bool:
+    return shape.wrapped.IsNull() or not shape.Solids()
 
 
 def _unify(shape: cq.Shape) -> cq.Shape:

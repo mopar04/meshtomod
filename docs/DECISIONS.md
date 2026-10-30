@@ -2,6 +2,34 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-29 (open ends and gappy scans)
+- **An opening whose rim lies flat is closed with that plane** (`ends.py`). A turntable scan
+  never sees the face the part stood on; a tube can miss an end. If the rim is within two
+  tolerances of one plane, the missing face was flat: it is closed exactly at the rim, before
+  segmentation, in the working mesh only (the fit is still scored on what was scanned). Rims
+  on one plane close together as one face with holes, so a tube's end is a ring, never a disc
+  over the bore. A rim that isn't flat (a gap over a corner) is left to the block solid. The
+  report says a face was closed, since nothing scanned backs it up. One-sided skins are
+  decided first and never closed.
+- **Slivers never sink a rebuild.** If the glued fuse of block solids comes back empty, that
+  batch is fused one block at a time and any block that breaks it is left out, up to 0.1% of
+  the volume; past that the scan is refused as before.
+
+## 2026-10-29 (Zac's calls: partial results, units, donations)
+- **A low match is returned, marked partial, not refused** (Zac). Under 90% of the scan within
+  the working tolerance the model still comes back, with `partial: true` in the report and a
+  warning first among the notes pointing at the deviation map. Applies to one-sided skins too.
+  Other refusals stay: a curved part we can't model yet, scans that can't be merged, edits
+  that would split the part.
+- **mm is the default unit** (Zac). Files without units still ask, with mm highlighted: a
+  wrong guess on an inch file is 25 times off.
+- **Donations: a Buy Me a Coffee pop-up** (Zac, like CNC Kitchen's tools). Once per visit at
+  most, after 90 s on the page, never over another dialog; "Don't remind me again" hides it
+  for good in that browser. It opens Zac's page, https://buymeacoffee.com/voxelautocraft (he
+  sent it as http; we use https), and `VITE_DONATE_URL` can override it. It mounts beside the app in
+  `main.tsx`, so it doesn't touch App.tsx while the production PR owns it; after that it can
+  wait for the first finished conversion instead of a timer.
+
 ## 2026-10-29 (M3c: sink, extrude, feature recipe)
 - **Edits work on the converted solid, not the scan.** The sketch is placed where the user
   clicked, square to the area-weighted mean normal of the solid's surface under the whole

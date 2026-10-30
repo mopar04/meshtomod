@@ -20,6 +20,9 @@ from .cylinders import FULL_COVERAGE, CurvedPatch, Cylinder, fit_circle_on_axis
 from .segment import Geo, Plane, Region
 from .tolerance import ToleranceLevel
 
+# A hole is the bore of a boss when their axes are this close (a tube or standoff).
+COAXIAL_DEG = 3.0
+COAXIAL_TOLS = 2.0
 # A plane is an end of a cylinder if its normal is within this angle of the axis, and a side
 # (tangent to a fillet) if within this angle of perpendicular.
 END_ANGLE_DEG = 15.0
@@ -183,6 +186,21 @@ def plan_features(
                 and not patch.convex
                 and r.neighbours <= set(holes)
                 and any(holes[n].cylinder.radius < cyl.radius - tol for n in r.neighbours)
+            ]
+            # A tube or standoff: a boss with a bore. Its top is a ring between it and the
+            # narrower, coaxial hole through it.
+            cap_ends += [
+                r
+                for r in ends
+                if r not in cap_ends
+                and patch.convex
+                and r.neighbours - {patch.id}
+                and r.neighbours - {patch.id} <= set(holes)
+                and all(
+                    _coaxial(holes[n].cylinder, cyl, tol)
+                    and holes[n].cylinder.radius < cyl.radius - tol
+                    for n in r.neighbours - {patch.id}
+                )
             ]
             open_ends = [r for r in ends if r not in cap_ends]
             kind = "boss" if patch.convex else "hole"
@@ -534,6 +552,14 @@ def _find_chamfers(
 def _gap(a: Plane, b: Plane) -> float:
     """Distance from plane a to plane b, measured along a's normal."""
     return float(a.distance(b.offset * b.normal))
+
+
+def _coaxial(a: Cylinder, b: Cylinder, tol: float) -> bool:
+    """Same axis line, within a few degrees and a few tolerances (a bore in a boss)."""
+    if abs(a.axis @ b.axis) < np.cos(np.radians(COAXIAL_DEG)):
+        return False
+    offset = b.point - a.point
+    return float(np.linalg.norm(offset - (offset @ a.axis) * a.axis)) <= COAXIAL_TOLS * tol
 
 
 def _axis_hit(cyl: Cylinder, plane: Plane) -> np.ndarray:
