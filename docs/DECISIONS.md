@@ -32,6 +32,25 @@ Newest first. One entry per choice a later session should not have to relitigate
 - **The donate link reads one constant** (`DONATE_URL` in DonatePrompt.tsx, Zac's page unless
   `VITE_DONATE_URL` overrides it), now that the footer can change after PR #11.
 
+## 2026-10-30 (Zac's turned part scan)
+- **A cross hole the scan only half saw is still a hole.** A scanner looking down into a
+  small cross hole sees the lower half of each mouth, so its walls never make a cylinder
+  that goes 85% of the way round, and the turned grouping used to refuse the whole body
+  over them. Now faces sunk well inside the turned outline (a small share of the body) don't
+  stop the grouping; they are fitted as a cylinder across the axis (`cross_holes`) and cut
+  through as their own hole feature, which the history makes an extrude cut.
+- **The profile is fitted in the most typical wedge, not the fullest.** The fullest wedge
+  is the one through a hole's mouth, and the hole's walls fit no piece of the profile.
+- **An open end that isn't flat is closed square to the axis.** A turned part stood on its
+  base: the base was never scanned and the edge where the scan stops is torn and wavy, so
+  `close_flat_ends` can't cap it. When the outline ends at an open edge that runs all round
+  the axis, the profile is closed there with a flat face, with the usual "closed flat" note.
+- **A stepped round part is a round body per step.** All its flat faces are square to the
+  axis, so each step reads as a round body; all of them are built, end to end, and the
+  history starts from the biggest and joins each other step to it.
+- **Only a flat at the very end of the shape is added when the wedge missed it.** Flat faces
+  square to the axis inside the shape are the floor of a cross hole, not a step.
+
 ## 2026-10-29 (open ends and gappy scans)
 - **An opening whose rim lies flat is closed with that plane** (`ends.py`). A turntable scan
   never sees the face the part stood on; a tube can miss an end. If the rim is within two

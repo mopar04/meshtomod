@@ -31,6 +31,7 @@ def converted(name: str):
         "bracket": lambda: noisy(fx.bracket),
         "turned_part": fx.turned_part,
         "surfaces_plate": fx.surfaces_plate,
+        "stepped_peg": lambda: noisy(fx.stepped_peg),
     }[name]
     return convert(make(), LEVELS["functional"])
 
@@ -56,6 +57,8 @@ PARTS = {
     "bracket": (["fillet:", "extrude:cut", "extrude:cut"], "base"),
     "turned_part": (["extrude:cut"], "revolve"),
     "surfaces_plate": (["revolve:join"] * 3 + ["revolve:cut"] * 3, "base"),
+    # A round body for each step: the biggest first, then the next joined to it.
+    "stepped_peg": (["extrude:join"], "extrude"),
 }
 
 
