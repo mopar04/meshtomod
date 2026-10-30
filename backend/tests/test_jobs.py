@@ -172,3 +172,128 @@ def test_process_timeout_kills_the_job(tmp_path):
     job = jobs.submit("1.2.3.4", opts, [("input-1.stl", b"solid x\nendsolid x\n")])
     assert job.finished.wait(60)
     assert job.status == "failed" and job.code == 504
+
+
+# --- progress, cancel, unwatched jobs and coming back to a job ----------------------------
+
+
+def test_conversion_reports_its_stages_in_order():
+    from meshtomod import progress
+    from meshtomod.convert import convert
+    from meshtomod.tolerance import get_level
+
+    seen = []
+    progress.listen(seen.append)
+    try:
+        convert(fixtures.l_bracket(), get_level("functional"))
+    finally:
+        progress.listen(None)
+    order = [key for key, _, _ in progress.STAGES]
+    assert seen[0] == "check" and seen[-1] == "fit"
+    steps = [order.index(k) for k in seen]
+    assert steps == sorted(steps)  # the bar only ever moves forward
+    assert {"faces", "features", "solid"} <= set(seen)
+    assert progress.describe("load")["percent"] == 0
+    assert progress.describe("save")["percent"] < 100
+
+
+def test_running_job_status_has_stage_and_time(tmp_path):
+    jobs = _manager(tmp_path)
+    jobs._started = True
+    job = jobs.submit("1.2.3.4", {"input": "x.stl"}, [])
+    job.status, job.started = "running", time.time() - 42
+    from meshtomod.jobs import _write_progress
+
+    _write_progress(job.folder, "faces")
+    body = jobs.status(job.id)
+    assert body["elapsed_s"] == 42
+    assert body["progress"]["label"] == "Finding flat faces"
+    assert 0 < body["progress"]["percent"] < 100
+
+
+def test_cancel_a_queued_job_frees_the_client(tmp_path):
+    jobs = _manager(tmp_path)
+    jobs._started = True  # no workers: the job stays queued
+    job = jobs.submit("1.2.3.4", {"input": "x.stl"}, [("x.stl", b"scan")])
+    jobs.cancel(job.id)
+    assert job.status == "cancelled" and job.finished.is_set()
+    assert "cancelled" in jobs.status(job.id)["detail"]
+    assert not job.folder.exists()  # the uploaded scan is gone
+    assert jobs.busy() == 0
+    jobs.submit("1.2.3.4", {"input": "x.stl"}, [])  # no longer blocked
+
+
+def test_unwatched_job_is_stopped_and_watched_one_kept(tmp_path):
+    jobs = _manager(tmp_path, job_abandon_s=180)
+    jobs._started = True
+    job = jobs.submit("1.2.3.4", {"input": "x.stl"}, [])
+    assert jobs.stop_unwatched(now=time.time() + 100) == 0
+    jobs.status(job.id)  # the page asks: still watched
+    assert jobs.stop_unwatched(now=job.seen + 179) == 0
+    assert jobs.stop_unwatched(now=job.seen + 181) == 1
+    assert job.status == "cancelled" and "closed" in job.detail
+    # The reason is kept for a page that comes back later, until results would expire.
+    jobs.sweep()
+    assert jobs.status(job.id)["status"] == "cancelled"
+    jobs.sweep(now=time.time() + 2 * 3600)
+    assert jobs.status(job.id) is None
+
+
+def test_busy_message_says_how_to_get_unstuck(tmp_path):
+    jobs = _manager(tmp_path, job_abandon_s=180)
+    jobs._started = True
+    jobs.submit("1.2.3.4", {"input": "x.stl"}, [])
+    with pytest.raises(Busy, match="stops within 3 minutes"):
+        jobs.submit("1.2.3.4", {"input": "x.stl"}, [])
+
+
+def test_cancel_kills_the_running_process(tmp_path):
+    jobs = JobManager(Settings(data_dir=tmp_path, job_isolation="process"))
+    opts = {
+        "level": "functional",
+        "units": "mm",
+        "max_faces": 10**6,
+        "input": "input-1.stl",
+        "filename": "bracket.stl",
+        "lay_flat": None,
+        "origin": "keep",
+        "up": "z",
+        "trim_flush": 0.0,
+    }
+    job = jobs.submit("1.2.3.4", opts, [("input-1.stl", _stl(fixtures.l_bracket()))])
+    for _ in range(300):
+        if job.proc is not None:
+            break
+        time.sleep(0.05)
+    proc = job.proc
+    assert proc is not None and job.status == "running"
+    jobs.cancel(job.id)
+    assert job.status == "cancelled" and jobs.busy() == 0  # free at once, not when it ends
+    proc.join(10)
+    assert not proc.is_alive()
+    for _ in range(100):  # the worker clears its folder once it sees the process end
+        if not job.folder.exists():
+            break
+        time.sleep(0.05)
+    assert not job.folder.exists()
+    assert job.status == "cancelled"
+
+
+def test_finished_job_found_after_a_restart(tmp_path):
+    folder = tmp_path / "results" / ("d" * 32)
+    folder.mkdir(parents=True)
+    (folder / "outcome.json").write_text('{"ok": true, "result": {"id": "' + "d" * 32 + '"}}')
+    jobs = _manager(tmp_path)  # a new server: nothing in memory
+    assert jobs.status("d" * 32) == {"id": "d" * 32, "status": "done", "result": {"id": "d" * 32}}
+    assert jobs.status("../etc") is None
+    assert jobs.status("e" * 32) is None
+
+
+def test_cancel_over_http():
+    assert client.delete("/api/jobs/" + "0" * 32).status_code == 404
+    res = client.post("/api/jobs", files={"file": ("bracket.stl", _stl(fixtures.l_bracket()))})
+    job_id = res.json()["id"]
+    body = client.delete(f"/api/jobs/{job_id}").json()
+    assert body["status"] in ("cancelled", "done")  # done if it beat us to it
+    status = client.get(f"/api/jobs/{job_id}").json()
+    assert status["status"] == body["status"]

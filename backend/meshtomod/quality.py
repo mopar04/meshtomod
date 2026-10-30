@@ -10,6 +10,7 @@ import trimesh
 from scipy.spatial import cKDTree
 from scipy.stats import chi2
 
+from .progress import stage
 from .tolerance import LEVELS, ToleranceLevel
 
 NOISE_NEIGHBOURS = 16
@@ -167,6 +168,7 @@ def scan_quality(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ScanQuality:
 
 def deviations(mesh: trimesh.Trimesh, shape: cq.Shape, tol: float) -> np.ndarray:
     """Distance from every scan vertex to the model surface."""
+    stage("fit")
     verts, tris = shape.tessellate(tol / 4, angularTolerance=0.1)
     verts = np.array([v.toTuple() for v in verts])
     # A big flat face tessellates into long thin triangles whose bounding boxes overlap half
