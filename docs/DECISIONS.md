@@ -20,6 +20,7 @@ Newest first. One entry per choice a later session should not have to relitigate
   converting, with room to spare) and the server decides what is still there.
 - **Cancel with thread isolation can't stop the work** (tests and quick local runs): the job
   counts as cancelled at once and its result is thrown away when it ends.
+
 ## 2026-10-30 (M4: editable history)
 - **Targets: Fusion, Onshape and FreeCAD** (Zac: "usable on commonly used accessible paid apps
   like fusion, onshape, and freecad"; Creo is not a target). STEP stays the default export.
