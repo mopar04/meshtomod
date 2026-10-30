@@ -747,14 +747,21 @@ def _same(a: Piece, b: Piece, tol: float) -> bool:
 
 
 def fit_turned(
-    mesh: Geo, faces: np.ndarray, axis: Axis, normals: np.ndarray, level: ToleranceLevel
+    mesh: Geo,
+    faces: np.ndarray,
+    axis: Axis,
+    normals: np.ndarray,
+    level: ToleranceLevel,
+    typical: bool = False,
 ) -> tuple[_Folded, list[ProfilePart], np.ndarray]:
     """The profile of a turned shape: folded faces, the parts, and each face's part.
 
     Every slice through the axis shows the same profile, so on a big shape the pieces are
     found in one wedge of it (the one the scan covers best), then every face goes to the
     piece it lies on, within that piece's stretch of the profile, and each piece is refitted
-    on all of its faces. That keeps the fitting time down without losing the averaging over
+    on all of its faces. typical fits in the most typical wedge instead of the fullest: a
+    wedge through the mouth of a cross hole is the fullest, and the hole's walls fit no piece
+    of the profile. That keeps the fitting time down without losing the averaging over
     the whole scan.
     """
     folded = fold(mesh, faces, axis, normals)
@@ -767,10 +774,11 @@ def fit_turned(
     width = max(2 * np.pi * WEDGE_FACES / m, np.radians(MIN_WEDGE_DEG))
     starts = np.linspace(0.0, 2 * np.pi, WEDGE_TRIES, endpoint=False)
     within = [((angle - a) % (2 * np.pi)) < width for a in starts]
-    # The most typical wedge, not the fullest: a wedge through the mouth of a cross hole has
-    # the most faces (the hole's walls), and they fit no piece of the profile.
     covered = np.array([float(folded.area[w].sum()) for w in within])
-    best = within[int(np.argmin(np.abs(covered - np.median(covered))))]
+    if typical:
+        best = within[int(np.argmin(np.abs(covered - np.median(covered))))]
+    else:
+        best = within[int(np.argmax(covered))]
     wedge = fold(mesh, folded.faces[best], axis, normals)
     wedge_parts, _ = fit_profile(wedge, level)
     if not wedge_parts:
@@ -2061,10 +2069,15 @@ def find_revolved(
     for group in find_groups(mesh, planes, patches, labels, seeds, cuttable, grouping, level):
         member = np.flatnonzero(np.isin(labels, list(group.labels)))
         member = off_bases(mesh, member, group.bases, normals, level.fit_tolerance_mm)
-        folded, parts, part_of = fit_turned(mesh, member, group.axis, normals, level)
-        if not parts or not {p.piece.kind() for p in parts} & {"cone", "sphere", "torus"}:
-            continue
-        outline = build_outline(parts, folded, part_of, mesh, group.bases, group.axis, level)
+        outline = None
+        # The fullest wedge first; if its pieces don't make an outline, the most typical one.
+        for typical in (False, True) if len(member) > WEDGE_FACES else (False,):
+            folded, parts, part_of = fit_turned(mesh, member, group.axis, normals, level, typical)
+            if not parts or not {p.piece.kind() for p in parts} & {"cone", "sphere", "torus"}:
+                continue
+            outline = build_outline(parts, folded, part_of, mesh, group.bases, group.axis, level)
+            if outline is not None:
+                break
         if outline is None:
             continue
         try:

@@ -39,8 +39,10 @@ Newest first. One entry per choice a later session should not have to relitigate
   over them. Now faces sunk well inside the turned outline (a small share of the body) don't
   stop the grouping; they are fitted as a cylinder across the axis (`cross_holes`) and cut
   through as their own hole feature, which the history makes an extrude cut.
-- **The profile is fitted in the most typical wedge, not the fullest.** The fullest wedge
-  is the one through a hole's mouth, and the hole's walls fit no piece of the profile.
+- **If the fullest wedge's pieces make no outline, the profile is fitted again in the most
+  typical wedge.** The fullest wedge can be the one through a hole's mouth, whose walls fit
+  no piece of the profile. Always using the typical wedge broke parts that worked (which
+  wedge is "typical" is close to chance on an even scan), so it is only the second try.
 - **An open end that isn't flat is closed square to the axis.** A turned part stood on its
   base: the base was never scanned and the edge where the scan stops is torn and wavy, so
   `close_flat_ends` can't cap it. When the outline ends at an open edge that runs all round
