@@ -245,6 +245,7 @@ Still open before a public launch:
   add the four DNS records (steps in `docs/DEPLOY.md`).
 - Decide: keep `scanner_holder.stl` as a public fixture; a contact address on the privacy page.
   (Default units: mm. Donate page: Zac's Buy Me a Coffee, below.)
+- The UI has no way to add the second scan for merging (API only; written, waits for #22).
 
 ## Next (M2.5: real-scan readiness, agreed with Zac)
 - Thin walls: detect wall pairs, measure thickness, patch missing wall areas from it (bin).
