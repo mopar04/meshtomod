@@ -24,7 +24,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 .primary { background: var(--accent); border-color: var(--accent); }
 .wide { display: block; width: 100%; margin-top: 12px; }
 .select { display: block; width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #3a424d; background: #232830; color: inherit; font: inherit; margin-bottom: 6px; }
-.link { background: none; border: 0; padding: 0; color: #7fb0ff; text-decoration: underline; }
+.link { background: none; border: 0; padding: 0; color: #7fb0ff; text-decoration: underline; cursor: pointer; font: inherit; }
+.second-side { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 13px; margin: -4px 0 8px; word-break: break-word; }
 .levels { display: flex; gap: 6px; }
 .levels button { flex: 1; padding: 8px 4px; }
 .active { background: var(--accent); border-color: var(--accent); }
