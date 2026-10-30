@@ -125,6 +125,24 @@ _Last updated: 2026-10-30 (M4 editable history; Zac's batch print scans run; aut
     next, with an "other side" upload in the web app.
   - Not run: the 10 files of 10 MB or more (thin wall, Cali, bottle, wave skin, merged
     scans), which the Drive connector won't download.
+- **Qidi Max4 toolhead cover (2026-10-30, Duet, via a draft GitHub release):** a 907k-triangle
+  thin-wall shell (walls about 1.6 mm, slots, logo, two hollow standoffs, U-shaped open end).
+  - In the app every level fails. Functional and Precise are refused as "largely curved"
+    (38% of the surface counted as curved). Rough is auto-simplified to 500k triangles and
+    refused the same way.
+  - Why "curved": the flat panels sag about 0.6 to 1 mm across their span, which is more
+    than the bow test allows. Scanner-rounded slot rims and about 2,000 pinholes also count
+    as bow. A rule for gently bent flat panels (curvature allowed in proportion to size)
+    takes Functional to 19%. That's still over the 15% limit, and the solid then won't
+    rebuild on 1.6 mm walls, so the rule is not merged. It was kept as a patch in the Mesh
+    to Mod project files, max4-test.
+  - Rough without auto-simplify converts, 90% within 1 mm, but it isn't usable:
+    - 3 separate solids;
+    - the open end is capped and stretched about 10 mm, and the U notch is filled;
+    - slots, logo and grille are gone;
+    - the two standoffs are solid 6 mm pegs with no screw hole.
+  - Fixed here: a crash ("SVD did not converge") when an area's faces point every way, like
+    a hollow standoff.
 
 ## In progress
 - **M4 editable history (2026-10-30, Zac: Fusion, Onshape, FreeCAD; "Merge once complete"):**
