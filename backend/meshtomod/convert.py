@@ -82,6 +82,12 @@ class ConversionResult:
     (a thickened skin's long B-spline edges throw it off by a few percent)."""
     partial: bool = False
     """Matches under MIN_PLAUSIBLE_FIT_PCT of the scan: returned with a warning, not refused."""
+    base: cq.Shape | None = None
+    """The solid before bosses, turned features, fillets, chamfers and holes: where an
+    editable history starts. None when there are none of those (the solid is its own base)."""
+    start: str = "solid"
+    """How the history makes the base: "solid" imports it, "turned" revolves the one turned
+    shape, "body" extrudes the round body's circle."""
 
     def report(self) -> dict:
         bb = self.solid.BoundingBox()
@@ -294,15 +300,20 @@ def convert(
     turned = [r.add for r in revolved if r.kind == "turned"]
     adds = [(r.kind, r.add) for r in revolved if r.add is not None and r.kind != "turned"]
     cuts = [(r.kind, r.cut) for r in revolved if r.cut is not None]
+    # What an editable history starts from: the base solid as a STEP, unless it is a single
+    # turned shape or a round body that CAD can make again from its sketch.
+    start = "solid"
     try:
         if any(f.form == "surface" for f in freeform):
             # A whole curved side: the planes alone don't close, so start from blocks.
             raise UnsupportedGeometry("freeform side")
         if turned and not base_planes:
             base = turned[0] if len(turned) == 1 else cq.Compound.makeCompound(turned)
+            start = "turned" if len(turned) == 1 else start
             turned = []
         elif body:
             base = cylinder_between(body.start, body.end, body.radius)
+            start = "body"
         else:
             base = rebuild_solid(work, base_planes, working.fit_tolerance_mm, labels, through)
     except (UnsupportedGeometry, ValueError):
@@ -352,6 +363,7 @@ def convert(
         )
     adds = [("turned", t) for t in turned] + adds
     base = apply_freeform(base, freeform)
+    start = start if not freeform else "solid"
     solid, failed = apply_features(base, features, planes, adds, cuts)
     dist = deviations(mesh, solid, working.fit_tolerance_mm)
     # A model that misses much of the scan is still handed back, but never silently.
@@ -371,6 +383,8 @@ def convert(
         revolved,
         freeform,
         partial=partial,
+        base=base,
+        start=start,
     )
 
 

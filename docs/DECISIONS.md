@@ -2,6 +2,36 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-30 (M4: editable history)
+- **Targets: Fusion, Onshape and FreeCAD** (Zac: "usable on commonly used accessible paid apps
+  like fusion, onshape, and freecad"; Creo is not a target). STEP stays the default export.
+- **One Export menu** (Zac's question, answered by the coordinator): STEP by default, then
+  "Editable history" for each tool, then "Everything" (one zip). Each history zip has a
+  HOW_TO_OPEN.txt for its tool.
+- **The history starts from a base solid, then one feature per step.** The base is the
+  solid before bosses, turned features, fillets, chamfers and holes (the planes plus any
+  freeform), saved as base.step. A single turned part starts from a revolve of its profile
+  and a round body from an extruded circle, so those stay editable too. Freeform surfaces
+  stay inside base.step: no CAD tool edits a scanned B-spline usefully.
+- **Steps are plain operations every tool has** (`history.py`): sketch on a plane and extrude
+  or revolve it (new, join, cut), fillet or chamfer the edges where two planes meet. Holes and
+  bosses are sketched on their face with their true depth or height, as a designer would.
+  Fillet and chamfer edges are found when the script runs, by the two planes they join, not
+  by edge numbers, which differ between tools.
+- **`replay` makes the same steps with CadQuery, and the tests require it to rebuild the
+  model exactly** (face types, volume, bounding box) on the test parts. That is the check on
+  the steps themselves; the scripts then follow them line for line.
+- **One template per tool** (`meshtomod/cad/`): a fixed program with the part's steps put in
+  as data. Sizes are named the same everywhere (hole_1_diameter, boss_1_height,
+  fillet_1_radius): Fusion user parameters, fields in the Onshape feature's dialog, sketch
+  constraints and Pocket/Pad lengths in FreeCAD. A step a tool can't make is left out and
+  listed, as `apply_features` does.
+- **Not yet run inside Fusion, Onshape or FreeCAD.** None can run here (FreeCAD's 800 MB
+  download was declined in this environment; Fusion and Onshape need an account). Zac's first
+  try in each is the real test; fixes follow from what he sees.
+- **The donate link reads one constant** (`DONATE_URL` in DonatePrompt.tsx, Zac's page unless
+  `VITE_DONATE_URL` overrides it), now that the footer can change after PR #11.
+
 ## 2026-10-29 (open ends and gappy scans)
 - **An opening whose rim lies flat is closed with that plane** (`ends.py`). A turntable scan
   never sees the face the part stood on; a tube can miss an end. If the rim is within two

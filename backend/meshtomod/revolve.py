@@ -1662,11 +1662,12 @@ def _revolve(face: cq.Shape, axis: Axis) -> cq.Shape | None:
     return out.clean()
 
 
-def outline_solids(
+def outline_profiles(
     outline: Outline, axis: Axis, bases: list[Region]
 ) -> tuple[cq.Shape | None, cq.Shape | None]:
-    """What to add to the part and what to cut from it: (add, cut). A turned part (no base)
-    is all add.
+    """What to add to the part and what to cut from it, as flat profiles in the plane through
+    the axis, to be revolved about it: (add, cut). A turned part (no base) is all add. They
+    are closed loops of lines and arcs, so CAD can sketch them and revolve them again.
 
     The outline, carried on along the faces it stands on, splits a box round the shape (in
     the profile plane, from the axis outwards) into material and air. Revolving the material
@@ -1695,8 +1696,7 @@ def outline_solids(
     if outline.closed:
         if not _point_in(sampled, probe):
             return None, None  # a hollow inside the part; not handled
-        face = cq.Face.makeFromWires(cq.Wire.assembleEdges(_edges(segs, at)))
-        return _revolve(face, axis), None
+        return cq.Face.makeFromWires(cq.Wire.assembleEdges(_edges(segs, at))), None
 
     z_lo, z_hi = sampled[:, 0].min() - OVERSHOOT_MM, sampled[:, 0].max() + OVERSHOOT_MM
     big_r = sampled[:, 1].max() + OVERSHOOT_MM
@@ -1739,7 +1739,7 @@ def outline_solids(
     material, air = (one, other) if _point_in(one_poly, probe) else (other, one)
     m_face = cq.Face.makeFromWires(cq.Wire.assembleEdges(_edges(material, at)))
     if not bases:
-        return _revolve(m_face, axis), None
+        return m_face, None
     a_face = cq.Face.makeFromWires(cq.Wire.assembleEdges(_edges(air, at)))
     # The slab of the part between the faces the shape stands on.
     h_lo, h_hi = z_lo, z_hi
@@ -1755,9 +1755,11 @@ def outline_solids(
     s_face = cq.Face.makeFromWires(
         cq.Wire.assembleEdges(_edges([(slab[i], slab[(i + 1) % 4]) for i in range(4)], at))
     )
-    add = _revolve(m_face.cut(s_face), axis)
-    cut = _revolve(a_face.intersect(s_face), axis)
-    return add, cut
+    add, cut = m_face.cut(s_face), a_face.intersect(s_face)
+    return (
+        add if any(f.Area() > 1e-9 for f in add.Faces()) else None,
+        cut if any(f.Area() > 1e-9 for f in cut.Faces()) else None,
+    )
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1783,6 +1785,10 @@ class Revolved:
     inside: np.ndarray
     """Per face: within the part's faces it stands on (so solid in the base before the cut)."""
     dims: dict = field(default_factory=dict)
+    add_profile: cq.Shape | None = None
+    cut_profile: cq.Shape | None = None
+    """The flat faces revolved into add and cut, in a plane through the axis: what an
+    editable history sketches and revolves."""
 
     def as_dict(self) -> dict:
         return {"type": self.kind, **self.dims}
@@ -1906,7 +1912,8 @@ def find_revolved(
         if outline is None:
             continue
         try:
-            add, cut = outline_solids(outline, group.axis, group.bases)
+            profiles = outline_profiles(outline, group.axis, group.bases)
+            add, cut = (_revolve(f, group.axis) if f is not None else None for f in profiles)
         except Exception:  # OpenCASCADE raises a variety of errors on a bad outline
             continue
         if add is None and cut is None:
@@ -1920,7 +1927,16 @@ def find_revolved(
             inside &= (z - z_b) * np.sign(b.plane.normal @ group.axis.direction) <= 0
         found.append(
             Revolved(
-                kind, group.axis, outline, add, cut, group.labels | group.junk, faces, inside, dims
+                kind,
+                group.axis,
+                outline,
+                add,
+                cut,
+                group.labels | group.junk,
+                faces,
+                inside,
+                dims,
+                *profiles,
             )
         )
     return found

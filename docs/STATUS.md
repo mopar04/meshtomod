@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-30 (production prep merged in PR #11; partial results, donate pop-up, open ends)_
+_Last updated: 2026-10-30 (M4 editable history; production prep merged in PR #11)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -96,6 +96,15 @@ _Last updated: 2026-10-30 (production prep merged in PR #11; partial results, do
   smoke detector and bottle (freeform): not converting yet.
 
 ## In progress
+- **M4 editable history (2026-10-30, Zac: Fusion, Onshape, FreeCAD; "Merge once complete"):**
+  the Export menu now offers STEP (default), an editable history for each tool, or one zip
+  with everything. Each history rebuilds the part as a base solid plus one feature per step
+  (bosses, turned shapes, fillets, chamfers, holes, slots, the user's sinks and extrusions,
+  trim flush), each with its own size to change. The steps rebuild every test part exactly
+  in CadQuery (holed plate, standoff, bracket, turned part, surfaces plate, round bodies).
+  Not yet tried inside Fusion, Onshape or FreeCAD: Zac's first run in each is the test.
+  Sinks and extrusions join the history once the viewer can make them.
+
 - **Real-scan readiness, part 1 (scanner holder):** Zac's own design (`tests/fixtures/
   scanner_holder.stl`) is now a ground-truth test. It went from 77% to 95% within 0.3 mm,
   with volume within 0.5%. Changes:
