@@ -6,6 +6,8 @@ import zipfile
 import cadquery as cq
 import numpy as np
 import pytest
+from OCP.Bnd import Bnd_Box
+from OCP.BRepBndLib import BRepBndLib
 
 from meshtomod import fixtures as fx
 from meshtomod.convert import convert
@@ -37,9 +39,14 @@ def same_solid(a: cq.Shape, b: cq.Shape) -> None:
     assert b.isValid()
     assert face_type_counts(b) == face_type_counts(a)
     assert abs(b.Volume() - a.Volume()) < 1e-4 * a.Volume()
-    ba, bb = a.BoundingBox(), b.BoundingBox()
-    assert np.allclose([ba.xmin, ba.ymin, ba.zmin], [bb.xmin, bb.ymin, bb.zmin], atol=1e-3)
-    assert np.allclose([ba.xmax, ba.ymax, ba.zmax], [bb.xmax, bb.ymax, bb.zmax], atol=1e-3)
+    assert np.allclose(exact_box(a), exact_box(b), atol=1e-3)
+
+
+def exact_box(shape: cq.Shape) -> list[float]:
+    """The tight bounding box: OpenCASCADE's quick one grows around curved faces."""
+    box = Bnd_Box()
+    BRepBndLib.AddOptimal_s(shape.wrapped, box, False, False)
+    return list(box.Get())
 
 
 # (steps after the first, first step)
