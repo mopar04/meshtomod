@@ -19,6 +19,9 @@ class ToleranceLevel:
     """Fillets below this radius become sharp edges (when keep_fillets is True)."""
     angle_snap_deg: float
     """Angles within this of 0/90/180 snap to the exact value."""
+    simplify_above_faces: int
+    """Scans with more triangles are simplified to this many before converting (simplify.py).
+    Far above what the level's smallest feature needs: the pipeline fits on 60,000."""
 
     def with_overrides(self, **overrides) -> ToleranceLevel:
         return replace(self, **overrides)
@@ -28,9 +31,9 @@ class ToleranceLevel:
 
 
 # Starting values; tune against real scans (see docs/DECISIONS.md).
-ROUGH = ToleranceLevel("rough", "Rough", 1.0, 5.0, False, 0.0, 3.0)
-FUNCTIONAL = ToleranceLevel("functional", "Functional", 0.3, 2.0, True, 2.0, 1.5)
-PRECISE = ToleranceLevel("precise", "Precise", 0.1, 0.5, True, 0.0, 0.5)
+ROUGH = ToleranceLevel("rough", "Rough", 1.0, 5.0, False, 0.0, 3.0, 500_000)
+FUNCTIONAL = ToleranceLevel("functional", "Functional", 0.3, 2.0, True, 2.0, 1.5, 1_000_000)
+PRECISE = ToleranceLevel("precise", "Precise", 0.1, 0.5, True, 0.0, 0.5, 2_000_000)
 
 LEVELS: dict[str, ToleranceLevel] = {lvl.key: lvl for lvl in (ROUGH, FUNCTIONAL, PRECISE)}
 DEFAULT_LEVEL = FUNCTIONAL

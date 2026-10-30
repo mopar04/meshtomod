@@ -46,6 +46,7 @@ Open PRs are the in-flight list: one place, always current, no merge needed to u
 ## Layout
 - `backend/meshtomod/`: Python geometry package and FastAPI app
   - `mesh_io.py` load and summarise meshes (trimesh)
+  - `simplify.py` dense scans simplified for the accuracy level on upload, with a check
   - `tolerance.py` accuracy level presets
   - `step_io.py` STEP read/write and face-type checks (CadQuery / OpenCASCADE)
   - `segment.py` region growing into planar regions, noise filter merges

@@ -111,7 +111,7 @@ All in `.env` (see `.env.example`); the API reads `MESHTOMOD_*` variables
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `MESHTOMOD_MAX_UPLOAD_MB` | 200 | Per file. Caddy caps the whole request at 420 MB. |
-| `MESHTOMOD_MAX_FACES` | 2,500,000 | Bigger scans are refused with "decimate it first". |
+| `MESHTOMOD_MAX_FACES` | 5,000,000 | Bigger scans are refused with "decimate it first". Smaller ones over a level's limit (500k Rough, 1M Functional, 2M Precise) are simplified automatically. |
 | `MESHTOMOD_MAX_RUNNING_JOBS` | 1 | Conversions at once. |
 | `MESHTOMOD_MAX_QUEUED_JOBS` | 4 | Waiting jobs; more get "busy, try again" (503). |
 | `MESHTOMOD_JOB_TIMEOUT_S` | 900 | A job running longer is killed (504). |
