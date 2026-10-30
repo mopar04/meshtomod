@@ -127,6 +127,11 @@ def run_conversion(folder: Path, opts: dict) -> dict:
 
     progress.stage("save")
     placement = place(result.solid, laid, opts["origin"], opts["up"], opts["trim_flush"])
+    job_id = folder.name
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(opts["filename"]).stem) or "model"
+    write_step(placement.export_solid, folder / "model.step")
+    # Before the solid moves to the view frame: the history starts from the converted one.
+    history = write_history(folder, result, placement, laid_or_eye, opts["up"], stem)
     # Viewer files (and the report's sizes) are in the view frame: Z up, placed. The scan
     # stays in the frame it was converted in until here.
     result.solid = placement.view_solid
@@ -135,14 +140,11 @@ def run_conversion(folder: Path, opts: dict) -> dict:
     if placement.note:
         result.notes.append(placement.note)
 
-    write_step(placement.export_solid, folder / "model.step")
     result.solid.exportStl(str(folder / "model.stl"), tolerance=tol.fit_tolerance_mm / 4)
     scan = result.scan_mesh.copy()
     scan.visual.vertex_colors = deviation_colors(result.deviation_mm, tol.fit_tolerance_mm)
     scan.export(folder / "deviation.ply")
 
-    job_id = folder.name
-    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(opts["filename"]).stem) or "model"
     report = result.report()
     report["placement"] = placement.as_dict()
     if merged is not None:
@@ -155,8 +157,32 @@ def run_conversion(folder: Path, opts: dict) -> dict:
             "step": f"/api/results/{job_id}/{stem}.step",
             "model_stl": f"/api/results/{job_id}/model.stl",
             "deviation_ply": f"/api/results/{job_id}/deviation.ply",
+            # Saved as history-<tool>.zip; downloaded as <part>-<tool>-history.zip.
+            "history": {t: f"/api/results/{job_id}/{stem}-{t}-history.zip" for t in history},
         },
     }
+
+
+def write_history(folder: Path, result, placement, laid: np.ndarray, up: str, stem: str) -> dict:
+    """The editable history zips (history_files.py) beside the STEP: {tool: filename}, or
+    nothing if they can't be made. The STEP never waits on them."""
+    from .history import build_history
+    from .history_files import write_history_zips
+    from .orient import homogeneous
+    from .step_io import write_step
+
+    try:
+        # The converted solid's frame to the STEP's: the placement without the lay-flat turn.
+        matrix = placement.export @ np.linalg.inv(homogeneous(laid))
+        trim = (placement.export_solid, up) if placement.trimmed_mm > 0 else None
+        history, base = build_history(result, matrix=matrix, trim=trim)
+        base_path = None
+        if base is not None:
+            base_path = write_step(base, folder / "base.step")
+        return write_history_zips(folder, history, stem, base_path)
+    except Exception:  # a history that can't be written leaves the STEP download as it is
+        log.exception("Editable history failed")
+        return {}
 
 
 def run_job(folder: str, opts: dict, memory_mb: int = 0) -> None:

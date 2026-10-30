@@ -20,6 +20,56 @@ Newest first. One entry per choice a later session should not have to relitigate
   converting, with room to spare) and the server decides what is still there.
 - **Cancel with thread isolation can't stop the work** (tests and quick local runs): the job
   counts as cancelled at once and its result is thrown away when it ends.
+## 2026-10-30 (M4: editable history)
+- **Targets: Fusion, Onshape and FreeCAD** (Zac: "usable on commonly used accessible paid apps
+  like fusion, onshape, and freecad"; Creo is not a target). STEP stays the default export.
+- **One Export menu** (Zac's question, answered by the coordinator): STEP by default, then
+  "Editable history" for each tool, then "Everything" (one zip). Each history zip has a
+  HOW_TO_OPEN.txt for its tool.
+- **The history starts from a base solid, then one feature per step.** The base is the
+  solid before bosses, turned features, fillets, chamfers and holes (the planes plus any
+  freeform), saved as base.step. A single turned part starts from a revolve of its profile
+  and a round body from an extruded circle, so those stay editable too. Freeform surfaces
+  stay inside base.step: no CAD tool edits a scanned B-spline usefully.
+- **Steps are plain operations every tool has** (`history.py`): sketch on a plane and extrude
+  or revolve it (new, join, cut), fillet or chamfer the edges where two planes meet. Holes and
+  bosses are sketched on their face with their true depth or height, as a designer would.
+  Fillet and chamfer edges are found when the script runs, by the two planes they join, not
+  by edge numbers, which differ between tools.
+- **`replay` makes the same steps with CadQuery, and the tests require it to rebuild the
+  model exactly** (face types, volume, bounding box) on the test parts. That is the check on
+  the steps themselves; the scripts then follow them line for line.
+- **One template per tool** (`meshtomod/cad/`): a fixed program with the part's steps put in
+  as data. Sizes are named the same everywhere (hole_1_diameter, boss_1_height,
+  fillet_1_radius): Fusion user parameters, fields in the Onshape feature's dialog, sketch
+  constraints and Pocket/Pad lengths in FreeCAD. A step a tool can't make is left out and
+  listed, as `apply_features` does.
+- **Not yet run inside Fusion, Onshape or FreeCAD.** None can run here (FreeCAD's 800 MB
+  download was declined in this environment; Fusion and Onshape need an account). Zac's first
+  try in each is the real test; fixes follow from what he sees.
+- **The donate link reads one constant** (`DONATE_URL` in DonatePrompt.tsx, Zac's page unless
+  `VITE_DONATE_URL` overrides it), now that the footer can change after PR #11.
+
+## 2026-10-30 (Zac's turned part scan)
+- **A cross hole the scan only half saw is still a hole.** A scanner looking down into a
+  small cross hole sees the lower half of each mouth, so its walls never make a cylinder
+  that goes 85% of the way round, and the turned grouping used to refuse the whole body
+  over them. Now faces sunk well inside the turned outline (a small share of the body) don't
+  stop the grouping; they are fitted as a cylinder across the axis (`cross_holes`) and cut
+  through as their own hole feature, which the history makes an extrude cut.
+- **If the fullest wedge's pieces make no outline, the profile is fitted again in the most
+  typical wedge.** The fullest wedge can be the one through a hole's mouth, whose walls fit
+  no piece of the profile. Always using the typical wedge broke parts that worked (which
+  wedge is "typical" is close to chance on an even scan), so it is only the second try.
+- **An open end that isn't flat is closed square to the axis.** A turned part stood on its
+  base: the base was never scanned and the edge where the scan stops is torn and wavy, so
+  `close_flat_ends` can't cap it. When the outline ends at an open edge that runs all round
+  the axis, the profile is closed there with a flat face, with the usual "closed flat" note.
+- **A stepped round part is a round body per step.** All its flat faces are square to the
+  axis, so each step reads as a round body; all of them are built, end to end, and the
+  history starts from the biggest and joins each other step to it.
+- **Only a flat at the very end of the shape is added when the wedge missed it.** Flat faces
+  square to the axis inside the shape are the floor of a cross hole, not a step.
 
 ## 2026-10-29 (open ends and gappy scans)
 - **An opening whose rim lies flat is closed with that plane** (`ends.py`). A turntable scan

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 /** Zac's Buy Me a Coffee page. VITE_DONATE_URL at build time overrides it. */
-const DONATE_URL =
+export const DONATE_URL =
   (import.meta.env.VITE_DONATE_URL as string | undefined) || "https://buymeacoffee.com/voxelautocraft";
 // Long enough that someone has used the app (a conversion takes about a minute) before it asks.
 const DELAY_MS = 90_000;

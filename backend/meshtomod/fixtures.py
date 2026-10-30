@@ -223,6 +223,17 @@ def bracket() -> trimesh.Trimesh:
     return from_cad(bracket_cad())
 
 
+def stepped_peg_cad():
+    """Like Zac's peg: a 16 mm round body, 19.4 mm long, with an 8 mm pin 6 mm long."""
+    import cadquery as cq
+
+    return cq.Workplane("XY").circle(8).extrude(19.4).faces(">Z").workplane().circle(4).extrude(6)
+
+
+def stepped_peg() -> trimesh.Trimesh:
+    return from_cad(stepped_peg_cad())
+
+
 def turned_part_cad():
     """A lathe part about Z, 30 mm across and 44 mm tall: a Ø30 base with a 1 mm chamfer, a
     step to Ø20, a groove to Ø16 with a 45 degree flank, a cone to Ø12, a neck and a ball end,
