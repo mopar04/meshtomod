@@ -107,9 +107,13 @@ _Last updated: 2026-10-30 (M4 editable history; Zac's batch print scans run)_
     93.9% (11 and 12 holes); Surfaces Plate Top 90.1% (bosses, countersink, holes; seven
     small curved areas left flat).
   - Turned Part Bottom: refused. It is the underside view only, in two separate pieces, half
-    the part; it needs combining with the top scan (M5).
+    the part; it needs merging with the top scan.
   - Each Top/Bottom pair is one part scanned from both sides. Converted alone, each half is
-    closed flat where it wasn't seen, so holes read as blind. Combining them is M5.
+    closed flat where it wasn't seen, so holes read as blind. Merged (`merge.py`) and
+    converted: Size Gauge 97.7% with most holes through; Surfaces Plate 93.2% but the tapered
+    boss reads as a cone to a point; Freeform 81%; Turned Part refused (the bottom scan has a
+    thin ring about 35 mm across, likely the turntable or a brim). Converting merged scans is
+    next, with an "other side" upload in the web app.
   - Not run: the 10 files of 10 MB or more (thin wall, Cali, bottle, wave skin, merged
     scans), which the Drive connector won't download.
 
