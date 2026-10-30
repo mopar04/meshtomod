@@ -8,6 +8,8 @@ export interface ToleranceLevel {
   keep_fillets: boolean;
   min_fillet_radius_mm: number;
   angle_snap_deg: number;
+  /** Scans with more triangles are simplified to this many before converting. */
+  simplify_above_faces: number;
 }
 
 export interface MeshSummary {
@@ -61,6 +63,15 @@ export interface ConversionReport {
   };
   features: Feature[];
   notes: string[];
+  /** Present when the scan was simplified before converting (the notes say so too). */
+  simplified?: {
+    from_faces: number;
+    to_faces: number;
+    /** 99.9% of the scan's points are within this of the simplified scan. */
+    error_mm: number;
+    allowed_mm: number;
+    softened: boolean;
+  };
   placement: {
     origin: Origin;
     up: UpAxis;

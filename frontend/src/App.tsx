@@ -421,6 +421,13 @@ export default function App() {
               <dt>Watertight</dt>
               <dd>{summary.watertight ? "yes" : "no (will be repaired)"}</dd>
             </dl>
+            {current && summary.faces > current.simplify_above_faces && (
+              <p className="note">
+                More than {current.label} needs: it will be simplified to about{" "}
+                {current.simplify_above_faces.toLocaleString()} triangles before converting,
+                keeping edges, holes and fillets.
+              </p>
+            )}
           </>
         )}
 

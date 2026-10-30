@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-30 (M4 editable history; Zac's batch print scans run)_
+_Last updated: 2026-10-30 (M4 editable history; Zac's batch print scans run; auto-simplify)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -85,6 +85,15 @@ _Last updated: 2026-10-30 (M4 editable history; Zac's batch print scans run)_
     CAD needs: hole and boss axes, the two planes a fillet joins, a turned shape's profile as
     lines and arcs in a plane through its axis. Then the user's sinks and extrusions, marked
     to replay. Positions follow the placement, so they match the STEP.
+
+- **Auto-simplify on upload** (`simplify.py`, Zac 2026-10-30): scans over a level's limit
+  (Rough 500k, Functional 1M, Precise 2M triangles) are simplified before converting instead
+  of refused; the server opens up to 5M. Checked against the original (within half the fit
+  tolerance plus the scan noise) and redone with more triangles if not. The Mesh panel says
+  when a scan will be simplified, and the result notes "Simplified from X to Y triangles". On
+  a dense noisy turned part cut to a tenth, the Ø4 cross hole and every turned face come
+  back as from the full scan; a 6.2M-triangle scan goes to 1M in about 70 s. Not yet tried
+  on one of Zac's big raw exports.
 
 ## Real scans tried (Zac's, in `Developer/Nurbsmith/Test Scans`)
 - Scale checks out: tape roll 92.5/76.8/48.5 vs 93/76/48.5; cap 102.2–102.8 vs 102.
