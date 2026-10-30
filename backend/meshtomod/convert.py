@@ -296,7 +296,7 @@ def convert(
                 return nb
         return None
 
-    body = next((f for f in features if f.kind == "body"), None)
+    body = max((f for f in features if f.kind == "body"), key=lambda f: f.radius, default=None)
     turned = [r.add for r in revolved if r.kind == "turned"]
     adds = [(r.kind, r.add) for r in revolved if r.add is not None and r.kind != "turned"]
     cuts = [(r.kind, r.cut) for r in revolved if r.cut is not None]
@@ -312,7 +312,10 @@ def convert(
             start = "turned" if len(turned) == 1 else start
             turned = []
         elif body:
+            # A stepped round part is a round body for each step, end to end.
             base = cylinder_between(body.start, body.end, body.radius)
+            for other in (f for f in features if f.kind == "body" and f is not body):
+                base = base.fuse(cylinder_between(other.start, other.end, other.radius)).clean()
             start = "body"
         else:
             base = rebuild_solid(work, base_planes, working.fit_tolerance_mm, labels, through)
@@ -333,7 +336,7 @@ def convert(
         fixed = [
             (patch_by_id[f.patch].faces, f.kind == "hole")
             for f in features
-            if f.kind in ("hole", "boss")
+            if f.kind in ("hole", "boss") and f.patch in patch_by_id
         ]
         # A slot is cut afterwards, so its walls and ends are inside the base.
         fixed += [
@@ -370,6 +373,7 @@ def convert(
     plausible = fit_score(mesh, dist, working).within_tolerance_pct
     partial = plausible < MIN_PLAUSIBLE_FIT_PCT
     notes = [PARTIAL_NOTE.format(plausible)] if partial else []
+    capped += sum(r.outline.capped for r in revolved)
     notes += [CLOSED_NOTE] if capped else []
     return ConversionResult(
         solid,
@@ -466,6 +470,8 @@ def take_revolved(
         return revolved, features, planes, patches, labels
     used = set().union(*(r.labels for r in revolved))
     features = [f for f in features if f.patch not in used and not ({*f.also, *f.planes} & used)]
+    # Holes across a turned part are cut after it, like any other hole.
+    features += [h for r in revolved for h in r.holes]
     planes = [r for r in planes if r.id not in used]
     patches = [p for p in patches if p.id not in used]
     for x in [*planes, *patches]:

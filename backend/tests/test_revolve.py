@@ -87,6 +87,44 @@ def test_precise_level_on_a_fine_scan():
     assert report["fit"]["within_tolerance_pct"] > 99.5
 
 
+def half_seen_cross_hole(mesh):
+    """A scanner looking down into a small cross hole sees only the lower half of each mouth:
+    the hole's walls deeper in, and the top half of each mouth, are missing."""
+    c = mesh.triangles_center
+    r = np.hypot(c[:, 0], c[:, 1])
+    wall = (np.abs(c[:, 2] - 20) < 2.2) & (r < 9.9)
+    out = mesh.copy()
+    out.update_faces(~(wall & ((r < 7.0) | (c[:, 2] > 20))))
+    out.remove_unreferenced_vertices()
+    return out
+
+
+@pytest.mark.parametrize(
+    "torn, sigma, height",
+    [
+        (0.0, 0.05, 44.0),
+        # The edge where the scan stops is torn up to 1.5 mm into the part.
+        (1.5, 0.02, 43.5),
+    ],
+)
+def test_turned_scan_with_half_seen_cross_hole_and_no_base(torn, sigma, height):
+    # Like Zac's scan of the printed turned part: it stood on its base, which was never
+    # scanned, and the cross hole shows only half of each mouth. The body is still turned,
+    # and the hole is cut through it as its own feature.
+    mesh = fx.unscanned_base(half_seen_cross_hole(fx.subdivided(fx.turned_part(), 0.5)))
+    if torn:
+        mesh = fx.ragged(mesh, torn)
+    result = convert(fx.rotated(fx.add_noise(mesh, sigma, seed=3), 3), LEVELS["functional"])
+    report = result.report()
+    assert result.solid.isValid()
+    body, hole = sorted(report["features"], key=lambda f: f["type"], reverse=True)
+    assert body["type"] == "turned" and body["diameter_mm"] == 30.0
+    assert body["height_mm"] == pytest.approx(height, abs=0.3)
+    assert hole == {"type": "hole", "diameter_mm": 4.0, "through": True}
+    assert report["fit"]["within_tolerance_pct"] > 99.5
+    assert any("closed flat" in note for note in report["notes"])
+
+
 def test_arc_fit_recovers_circle():
     rng = np.random.default_rng(0)
     t = np.linspace(0.2, 1.4, 60)

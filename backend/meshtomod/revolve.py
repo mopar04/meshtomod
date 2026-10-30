@@ -22,8 +22,8 @@ from scipy.optimize import least_squares
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 
-from .cylinders import FULL_COVERAGE, CurvedPatch
-from .features import CHAMFER_MIN_WIDTH, _snap_radius
+from .cylinders import FULL_COVERAGE, CurvedPatch, Cylinder, fit_circle_on_axis
+from .features import CHAMFER_MIN_WIDTH, Feature, _snap_radius
 from .segment import Geo, Region, smoothed_normals
 from .tolerance import ToleranceLevel
 
@@ -74,7 +74,7 @@ SNAP_SHARE = 0.5
 OVERSHOOT_MM = 1.0
 COVERAGE_SECTORS = 36
 # A big shape's profile is found in a wedge of about this many faces (at least MIN_WEDGE_DEG
-# wide), the best covered of WEDGE_TRIES; faces then go to a piece within this many tolerances
+# wide), the most typical of WEDGE_TRIES; faces then go to a piece within this many tolerances
 # of the stretch the wedge found it on.
 WEDGE_FACES = 4000
 MIN_WEDGE_DEG = 15.0
@@ -86,6 +86,25 @@ PROFILE_SMOOTHING_ROUNDS = 4
 PROFILE_SMOOTHING_KEEP_DEG = 30.0
 AXIS_SMOOTHING_ROUNDS = 12
 AXIS_SMOOTHING_KEEP_DEG = 60.0
+# A turned part may border areas sunk into it that it doesn't explain, like the mouth of a
+# cross hole (a scanner sees only part of the way into a small hole): together at most this
+# share of its area, and lying this many tolerances inside it.
+POCKET_SHARE = 0.1
+POCKET_TOLS = 3.0
+# A cross hole's walls fit their cylinder within this many tolerances at this percentile
+# (only the mouth is seen, and a printed hole is rarely round).
+CROSS_HOLE_TOLS = 2.0
+CROSS_HOLE_PERCENTILE = 90
+# The far mouth of a cross hole is closed (a blind hole) when the scan covers this share of
+# where it would be.
+FAR_MOUTH_COVER = 0.5
+# A profile piece smaller than this share of the profile's area, and than this many smallest
+# features squared, is a scrap the outline can go on without.
+SCRAP_SHARE = 0.02
+SCRAP_FEATURES = 4.0
+# A scan with an open end (a part that stood on the turntable, its base never seen) is closed
+# there by a flat face square to the axis when its open edge runs this far round the axis.
+OPEN_END_COVERAGE = 0.5
 
 
 @dataclass
@@ -748,7 +767,10 @@ def fit_turned(
     width = max(2 * np.pi * WEDGE_FACES / m, np.radians(MIN_WEDGE_DEG))
     starts = np.linspace(0.0, 2 * np.pi, WEDGE_TRIES, endpoint=False)
     within = [((angle - a) % (2 * np.pi)) < width for a in starts]
-    best = max(within, key=lambda w: float(folded.area[w].sum()))
+    # The most typical wedge, not the fullest: a wedge through the mouth of a cross hole has
+    # the most faces (the hole's walls), and they fit no piece of the profile.
+    covered = np.array([float(folded.area[w].sum()) for w in within])
+    best = within[int(np.argmin(np.abs(covered - np.median(covered))))]
     wedge = fold(mesh, folded.faces[best], axis, normals)
     wedge_parts, _ = fit_profile(wedge, level)
     if not wedge_parts:
@@ -775,6 +797,28 @@ def fit_turned(
         facing = (piece.normal_at(folded.q) * folded.n).sum(axis=1) >= np.cos(np.radians(limit))
         ok = (dist <= tol) & facing & (t >= lo - margin) & (t <= hi + margin)
         cost[k, ok] = dist[ok]
+    # A flat end square to the axis that the wedge holds too few faces of to fit (a scan's
+    # open end closed with a few long triangles) is still a piece.
+    # If the wedge has a few faces of it, they are the same piece: it only held the faces
+    # within their short stretch.
+    for flat in _missed_flats(folded, np.isfinite(cost).any(axis=0), level):
+        dist = np.abs(flat.piece.distance(pts.reshape(-1, 2))).reshape(m, 4).max(axis=1)
+        facing = folded.n @ flat.piece.normal >= np.cos(np.radians(LINE_NORMAL_DEG))
+        ok = (dist <= tol) & facing
+        same = [
+            k
+            for k, part in enumerate(wedge_parts)
+            if isinstance(part.piece, Line2)
+            and part.piece.normal @ flat.piece.normal > np.cos(np.radians(LINE_NORMAL_DEG))
+            and abs(part.piece.offset - flat.piece.offset) <= 2 * tol
+        ]
+        if same:
+            cost[same[0], ok] = np.minimum(cost[same[0], ok], dist[ok])
+            continue
+        row = np.full(m, np.inf)
+        row[ok] = dist[ok]
+        wedge_parts.append(flat)
+        cost = np.vstack([cost, row])
     fitted = np.where(np.isfinite(cost.min(axis=0)), cost.argmin(axis=0), -1)
     labels = _flood(folded, fitted)
     parts = []
@@ -811,6 +855,31 @@ def fit_turned(
 # ---------------------------------------------------------------------------------------------
 # Axis
 # ---------------------------------------------------------------------------------------------
+
+
+def _missed_flats(f: _Folded, held: np.ndarray, level: ToleranceLevel) -> list[ProfilePart]:
+    """Flat faces square to the axis at either end of the shape among the faces no piece
+    holds, one piece for each end. Only the ends: inside the shape, faces like these are
+    the floor of a cross hole."""
+    tol = level.fit_tolerance_mm
+    square = ~held & (np.abs(f.n[:, 0]) >= np.cos(np.radians(LINE_NORMAL_DEG)))
+    lo, hi = float(f.qv[:, 0].min()), float(f.qv[:, 0].max())
+    out = []
+    for sign, end in ((1.0, hi), (-1.0, lo)):
+        idx = np.flatnonzero(square & (np.sign(f.n[:, 0]) == sign))
+        if not len(idx):
+            continue
+        idx = idx[np.argsort(f.q[idx, 0])]
+        breaks = np.flatnonzero(np.diff(f.q[idx, 0]) > tol) + 1
+        for run in np.split(idx, breaks):
+            if f.area[run].sum() < level.min_feature_mm**2:
+                continue
+            if abs(float(np.median(f.q[run, 0])) - end) > 2 * tol:
+                continue
+            z = float(np.average(f.q[run, 0], weights=f.area[run]))
+            piece = Line2(np.array([sign, 0.0]), sign * z)
+            out.append(ProfilePart(piece, f.faces[run], float(f.area[run].sum())))
+    return out
 
 
 def profile_normals(mesh: Geo, noise_mm: float) -> np.ndarray:
@@ -912,6 +981,9 @@ class _Group:
     """Scraps along its edge too small to be anything; they go with the shape."""
     bases: list[Region]
     """Flat faces square to the axis that the shape stands on (none for a turned part)."""
+    pockets: set[int] = field(default_factory=set)
+    """Small areas sunk into a turned part that aren't turned about its axis: the mouth of a
+    cross hole, cut afterwards."""
 
 
 def find_groups(
@@ -1002,6 +1074,29 @@ def find_groups(
     def scrap(lab: int) -> bool:
         return lab >= 0 and lab not in cuttable and area[faces_of[lab]].sum() < junk_area
 
+    def sunk(pockets: set[int], members: set[int], axis: Axis) -> bool:
+        """Small areas sunk into the shape (the mouth of a cross hole): most of their area
+        well inside the shape's outside at the same height."""
+        pf = np.concatenate([faces_of[p] for p in pockets])
+        mf = np.concatenate([faces_of[m] for m in members])
+        if area[pf].sum() > POCKET_SHARE * area[mf].sum():
+            return False
+        member_axis = axis_through(axis.direction, centres[mf], normals[mf], area[mf])
+        if member_axis is None:
+            return False
+        zm, rm = member_axis.to_profile(centres[mf]).T
+        zp, rp = member_axis.to_profile(centres[pf]).T
+        order = np.argsort(zm)
+        zm, rm = zm[order], rm[order]
+        reach = max(level.min_feature_mm, 4 * level.fit_tolerance_mm)
+        lo = np.searchsorted(zm, zp - reach)
+        hi = np.searchsorted(zm, zp + reach)
+        outside = np.array(
+            [rm[a:b].max() if b > a else -np.inf for a, b in zip(lo, hi, strict=True)]
+        )
+        deep = rp < outside - POCKET_TOLS * level.fit_tolerance_mm
+        return bool(area[pf][deep].sum() >= 0.5 * area[pf].sum())
+
     # Seeds that touch, by label.
     seed_list = sorted(seeds & set(faces_of))
     index = {s: i for i, s in enumerate(seed_list)}
@@ -1055,7 +1150,8 @@ def find_groups(
                     junk.add(lab)
                 else:
                     refused.add(lab)
-        if refused - cuttable:
+        pockets = refused - cuttable
+        if pockets and (square_planes or not sunk(pockets, members, axis)):
             continue  # it runs into something that isn't turned about this axis
         bases = [plane_by_id[i] for i in sorted(square_planes)]
         if len(bases) > 2 or (
@@ -1077,8 +1173,8 @@ def find_groups(
             continue
         if coverage(refit, centres[member_faces]) < FULL_COVERAGE:
             continue
-        groups.append(_Group(refit, members, junk, bases))
-        taken |= members | junk
+        groups.append(_Group(refit, members, junk, bases, pockets))
+        taken |= members | junk | pockets
     return groups
 
 
@@ -1099,7 +1195,8 @@ ARC_SAMPLES = 24
 @dataclass
 class _End:
     kind: str
-    """"axis" or "base"."""
+    """"axis" or "base"; "open" while the outline is put together, for an end of the scan
+    that is open all round (closed with a flat face, ending on the axis)."""
     near: np.ndarray
     """(z, r) of the scan where the outline ends."""
     base: Region | None = None
@@ -1118,6 +1215,8 @@ class Outline:
     ends: tuple[_End, _End] | None
     names: list[str | None]
     """Standard size a piece was snapped to (a clearance hole)."""
+    capped: int = 0
+    """Open ends of the scan closed by a flat face (an unscanned base)."""
 
 
 def _param(piece: Piece, q: np.ndarray, ref: np.ndarray | None = None) -> np.ndarray:
@@ -1129,12 +1228,17 @@ def _param(piece: Piece, q: np.ndarray, ref: np.ndarray | None = None) -> np.nda
     return np.arctan2(ref[0] * d[:, 1] - ref[1] * d[:, 0], d @ ref)
 
 
-def _order(parts: list[ProfilePart], weights: dict[tuple[int, int], int]) -> tuple[list[int], bool]:
+def _order(
+    parts: list[ProfilePart], weights: dict[tuple[int, int], int], skip: frozenset = frozenset()
+) -> tuple[list[int], bool]:
     """The parts in order along the outline, and whether it closes on itself. Each part keeps
     its two strongest links (by shared mesh edges), so a stray face or two touching a part
-    further along doesn't branch the outline. Empty if it still isn't a single line or loop."""
-    links: dict[int, list[tuple[int, int]]] = {i: [] for i in range(len(parts))}
+    further along doesn't branch the outline. Empty if it still isn't a single line or loop.
+    Parts in skip are left out."""
+    links: dict[int, list[tuple[int, int]]] = {i: [] for i in range(len(parts)) if i not in skip}
     for (a, b), w in weights.items():
+        if a in skip or b in skip:
+            continue
         links[a].append((w, b))
         links[b].append((w, a))
     top = {i: {b for _, b in sorted(ls, reverse=True)[:2]} for i, ls in links.items()}
@@ -1142,7 +1246,7 @@ def _order(parts: list[ProfilePart], weights: dict[tuple[int, int], int]) -> tup
     if any(len(v) > 2 for v in nbrs.values()):
         return [], False
     ends = [i for i, v in nbrs.items() if len(v) < 2]
-    start = ends[0] if ends else 0
+    start = ends[0] if ends else min(links)
     order, prev = [start], None
     while True:
         nxt = [b for b in nbrs[order[-1]] if b != prev and b not in order]
@@ -1150,10 +1254,10 @@ def _order(parts: list[ProfilePart], weights: dict[tuple[int, int], int]) -> tup
             break
         prev = order[-1]
         order.append(nxt[0])
-    if len(order) != len(parts):
+    if len(order) != len(links):
         return [], False
-    closed = not ends and len(parts) > 2
-    if not closed and len(ends) != 2 and len(parts) > 1:
+    closed = not ends and len(links) > 2
+    if not closed and len(ends) != 2 and len(links) > 1:
         return [], False
     return order, closed
 
@@ -1257,6 +1361,15 @@ def build_outline(
         corner_verts.setdefault(key, []).extend(edge.tolist())
     order, closed = _order(parts, weights)
     if not order:
+        # A scrap fitted on its own in a corner (a few faces of a scan's rounded inside
+        # corner) can link three pieces: the outline goes on without it.
+        scrap = min(
+            SCRAP_SHARE * sum(p.area for p in parts), SCRAP_FEATURES * level.min_feature_mm**2
+        )
+        small = frozenset(i for i, p in enumerate(parts) if p.area < scrap)
+        if small:
+            order, closed = _order(parts, weights, small)
+    if not order:
         return None
     pieces = [parts[i].piece for i in order]
     n = len(pieces)
@@ -1279,6 +1392,18 @@ def build_outline(
         tris = mesh.vertices[mesh.faces[f.faces]]
         shortest = np.linalg.norm(tris - np.roll(tris, 1, axis=1), axis=2).min(axis=1)
         reach = REACH_TOLS * tol + float(np.median(shortest))
+        rim = _open_edge(mesh)
+        rim_q = axis.to_profile(rim)
+        z_span = (float(f.qv[:, 0].min()), float(f.qv[:, 0].max()))
+
+        def open_end(far: np.ndarray) -> bool:
+            """The scan is open at this end of the shape, all round it: the base it stood
+            on was never scanned."""
+            if min(abs(far[0] - z) for z in z_span) > reach:
+                return False
+            near = (np.abs(rim_q[:, 0] - far[0]) <= reach) & (rim_q[:, 1] <= far[1] + reach)
+            return near.any() and coverage(axis, rim[near]) >= OPEN_END_COVERAGE
+
         base_z = [
             ((b.plane.offset * b.plane.normal - axis.point) @ axis.direction, b) for b in bases
         ]
@@ -1310,6 +1435,8 @@ def build_outline(
             if near_bases:
                 _, z, b = min(near_bases, key=lambda x: x[0])
                 return _End("base", far, b, float(z))
+            if not bases and open_end(far):
+                return _End("open", far)
             return None
 
         first = end_at(0, hints[0] if n > 1 else None, True)
@@ -1335,6 +1462,26 @@ def build_outline(
             if flats
             else 0.0
         )
+    capped = 0
+    if ends is not None and any(e.kind == "open" for e in ends):
+        # Close each open end with a flat face square to the axis, out to the axis.
+        middle = float(np.median(f.qv[:, 0]))
+        closed_ends = []
+        for k, end in enumerate(ends):
+            if end.kind != "open":
+                closed_ends.append(end)
+                continue
+            normal = np.array([1.0 if end.near[0] > middle else -1.0, 0.0])
+            flat = Line2(normal, float(normal @ end.near))
+            span = np.stack([np.full(8, end.near[0]), np.linspace(0.0, end.near[1], 8)], axis=1)
+            at = 0 if k == 0 else len(pieces)
+            pieces.insert(at, flat)
+            pts_of.insert(at, span)
+            hints.insert(at if k == 0 else len(hints), end.near)
+            closed_ends.append(_End("axis", np.array([end.near[0], 0.0])))
+            capped += 1
+        ends = (closed_ends[0], closed_ends[1])
+        n = len(pieces)
     pieces, names = _snap_pieces(pieces, pts_of, hints, closed, ends, z0, level)
     if pieces is None:
         return None
@@ -1364,8 +1511,15 @@ def build_outline(
             mids.append(None)
             continue
         mids.append(_arc_middle(piece, a, b, pts_of[k]))
-    outline = Outline(pieces, points, mids, closed, ends, names)
+    outline = Outline(pieces, points, mids, closed, ends, names, capped)
     return outline if _simple(outline, tol) else None
+
+
+def _open_edge(mesh: Geo) -> np.ndarray:
+    """The vertices on the scan's open edges: those of edges only one triangle has."""
+    edges = np.sort(mesh.faces[:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2), axis=1)
+    unique, count = np.unique(edges, axis=0, return_counts=True)
+    return mesh.vertices[np.unique(unique[count == 1])]
 
 
 def _arc_middle(arc: Arc2, a: np.ndarray, b: np.ndarray, pts: np.ndarray) -> np.ndarray:
@@ -1789,6 +1943,8 @@ class Revolved:
     cut_profile: cq.Shape | None = None
     """The flat faces revolved into add and cut, in a plane through the axis: what an
     editable history sketches and revolves."""
+    holes: list[Feature] = field(default_factory=list)
+    """Holes drilled across a turned part, cut after it like any other hole."""
 
     def as_dict(self) -> dict:
         return {"type": self.kind, **self.dims}
@@ -1925,6 +2081,12 @@ def find_revolved(
         for b in group.bases:
             z_b = float((b.plane.offset * b.plane.normal - group.axis.point) @ group.axis.direction)
             inside &= (z - z_b) * np.sign(b.plane.normal @ group.axis.direction) <= 0
+        holes = []
+        if not group.bases:
+            pocket = np.flatnonzero(np.isin(labels, list(group.pockets)))
+            holes = cross_holes(
+                mesh, np.concatenate([member, pocket]), outline, group.axis, normals, level
+            )
         found.append(
             Revolved(
                 kind,
@@ -1932,11 +2094,162 @@ def find_revolved(
                 outline,
                 add,
                 cut,
-                group.labels | group.junk,
-                faces,
+                group.labels | group.junk | group.pockets,
+                np.flatnonzero(np.isin(labels, list(group.labels | group.junk | group.pockets))),
                 inside,
                 dims,
                 *profiles,
+                holes=holes,
             )
         )
     return found
+
+
+def _sunk_faces(q: np.ndarray, outline: Outline, depth: float) -> np.ndarray:
+    """Which (z, r) points lie inside a turned part's outline, deeper than depth below it."""
+    path = np.concatenate([_samples(outline, k)[:-1] for k in range(len(outline.pieces))])
+    path = np.concatenate([path, outline.points[-1][None]])
+    a, b = path, np.roll(path, -1, axis=0)
+    # Inside: crossings of a ray along +z (the outline closes along the axis).
+    crosses = (a[None, :, 1] > q[:, None, 1]) != (b[None, :, 1] > q[:, None, 1])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        z = (
+            a[None, :, 0]
+            + (q[:, None, 1] - a[None, :, 1]) * (b - a)[None, :, 0] / (b - a)[None, :, 1]
+        )
+    inside = (crosses & (z > q[:, None, 0])).sum(axis=1) % 2 == 1
+    d = b - a
+    t = np.clip(
+        ((q[:, None] - a[None]) * d[None]).sum(axis=2) / np.maximum((d * d).sum(axis=1), 1e-12),
+        0.0,
+        1.0,
+    )
+    gap = np.linalg.norm(q[:, None] - (a[None] + t[..., None] * d[None]), axis=2).min(axis=1)
+    return inside & (gap > depth)
+
+
+def cross_holes(
+    mesh: Geo,
+    faces: np.ndarray,
+    outline: Outline,
+    axis: Axis,
+    normals: np.ndarray,
+    level: ToleranceLevel,
+) -> list[Feature]:
+    """Holes drilled across a turned part, square to its axis: the areas sunk into it that the
+    outline doesn't explain, each fitted as a cylinder. A scanner sees only the mouth of a
+    small hole, so the walls are fitted on part of the way round; both mouths open in the scan
+    (or the far one unscanned) make it a hole through, else it stops where the scan does."""
+    tol = level.fit_tolerance_mm
+    centres = mesh.vertices[mesh.faces[faces]].mean(axis=1)
+    sunk = faces[_sunk_faces(axis.to_profile(centres), outline, POCKET_TOLS * tol)]
+    if not len(sunk):
+        return []
+    # Pieces of sunk area, by shared edges.
+    pos = np.full(len(mesh.faces), -1)
+    pos[sunk] = np.arange(len(sunk))
+    fa, fb = pos[mesh.face_adjacency[:, 0]], pos[mesh.face_adjacency[:, 1]]
+    keep = (fa >= 0) & (fb >= 0)
+    graph = csr_matrix(
+        (np.ones(int(keep.sum()), bool), (fa[keep], fb[keep])), shape=(len(sunk), len(sunk))
+    )
+    _, comp = connected_components(graph, directed=False)
+    u = np.cross(axis.direction, [1.0, 0.0, 0.0])
+    if np.linalg.norm(u) < 0.1:
+        u = np.cross(axis.direction, [0.0, 1.0, 0.0])
+    u /= np.linalg.norm(u)
+    v = np.cross(axis.direction, u)
+    sampled = np.concatenate([_samples(outline, k) for k in range(len(outline.pieces))])
+
+    def centre_of(idx: np.ndarray) -> np.ndarray:
+        return mesh.vertices[mesh.faces[idx]].mean(axis=1)
+
+    fitted: list[tuple[Cylinder, np.ndarray]] = []
+    for c in np.unique(comp):
+        idx = sunk[comp == c]
+        if mesh.area_faces[idx].sum() < level.min_feature_mm**2:
+            continue
+        # The walls face across the hole, never along it: its direction is the one square to
+        # the axis that the normals are furthest from.
+        n = normals[idx]
+        w = mesh.area_faces[idx]
+        nu, nv = n @ u, n @ v
+        scatter = np.array([[w @ (nu * nu), w @ (nu * nv)], [w @ (nu * nv), w @ (nv * nv)]])
+        _, vecs = np.linalg.eigh(scatter)
+        d = vecs[0, 0] * u + vecs[1, 0] * v
+        pts = mesh.vertices[np.unique(mesh.faces[idx])]
+        middle = centre_of(idx).mean(axis=0)
+        start = Cylinder(
+            axis.point + ((middle - axis.point) @ axis.direction) * axis.direction, d, 1.0
+        )
+        start.radius = float(np.median(np.abs(start.distance(pts) + 1.0)))
+        cyl = fit_circle_on_axis(pts, d, start)
+        # Drilled through the axis when it passes that close.
+        rel = cyl.point - axis.point
+        off = rel - (rel @ axis.direction) * axis.direction
+        off -= (off @ d) * d
+        if np.linalg.norm(off) <= CROSS_HOLE_TOLS * tol:
+            cyl.point = cyl.point - off
+            cyl.radius = float(np.median(np.abs(cyl.distance(pts) + cyl.radius)))
+        misfit = np.percentile(np.abs(cyl.distance(pts)), CROSS_HOLE_PERCENTILE)
+        hollow = float(w @ (cyl.radial(centre_of(idx)) * n).sum(axis=1)) < 0
+        if (
+            misfit > CROSS_HOLE_TOLS * tol
+            or not hollow
+            or not level.min_feature_mm / 2 <= cyl.radius <= sampled[:, 1].max()
+        ):
+            continue
+        fitted.append((cyl, idx))
+
+    # Two mouths of one hole: the same line and size.
+    holes: list[list[tuple[Cylinder, np.ndarray]]] = []
+    for cyl, idx in fitted:
+        for hole in holes:
+            other = hole[0][0]
+            rel = cyl.point - other.point
+            apart = np.linalg.norm(rel - (rel @ other.axis) * other.axis)
+            if (
+                abs(cyl.axis @ other.axis) >= np.cos(np.radians(level.angle_snap_deg))
+                and apart <= CROSS_HOLE_TOLS * tol
+                and abs(cyl.radius - other.radius) <= CROSS_HOLE_TOLS * tol
+            ):
+                hole.append((cyl, idx))
+                break
+        else:
+            holes.append([(cyl, idx)])
+
+    out = []
+    every = mesh.vertices[mesh.faces[faces]].mean(axis=1)
+    for k, hole in enumerate(holes):
+        idx = np.concatenate([i for _, i in hole])
+        pts = mesh.vertices[np.unique(mesh.faces[idx])]
+        cyl = hole[0][0]
+        d = cyl.axis
+        # Where the hole's line is nearest the axis, and how far out the part's outside is
+        # at the hole's height.
+        rel = cyl.point - axis.point
+        h = float(rel @ axis.direction)
+        aside = rel - h * axis.direction
+        aside -= (aside @ d) * d
+        p0 = axis.point + h * axis.direction + aside
+        e = float(np.linalg.norm(aside))
+        band = np.abs(sampled[:, 0] - h) <= cyl.radius
+        outer = float(sampled[band, 1].max()) if band.any() else float(sampled[:, 1].max())
+        reach = float(np.sqrt(max(outer**2 - e**2, 0.0)))
+        t = (pts - p0) @ d
+        side = 1.0 if float(np.median(t)) > 0 else -1.0
+        sides = {float(np.sign(np.median((centre_of(i) - p0) @ d))) for _, i in hole}
+        through = len(sides) == 2
+        if not through:
+            # The far mouth: open unless the scan covers where it would be.
+            tf = (every - p0) @ d
+            across = np.linalg.norm((every - p0) - np.outer(tf, d), axis=1)
+            mouth = (tf * side < 0) & (np.abs(np.abs(tf) - reach) <= cyl.radius)
+            mouth &= across <= cyl.radius
+            covered = float(mesh.area_faces[faces[mouth]].sum())
+            through = covered < FAR_MOUTH_COVER * np.pi * cyl.radius**2
+        radius, label = _snap_radius(cyl.radius, tol, "hole")
+        end = p0 + side * reach * d
+        start = p0 - side * reach * d if through else p0 + side * float((t * side).min()) * d
+        out.append(Feature("hole", -1 - k, radius, d, start, end, through=through, label=label))
+    return out

@@ -19,12 +19,13 @@ rebuild the model, which is what the FreeCAD, Fusion and Onshape scripts then do
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 
 import cadquery as cq
 import numpy as np
 
 from .convert import ConversionResult
-from .features import OVERSHOOT_MM
+from .features import OVERSHOOT_MM, Feature
 from .orient import transform_shape
 from .sink import Edit, EditResult
 
@@ -151,23 +152,25 @@ def _feature_ops(result: ConversionResult, frame: _Frame) -> list[dict]:
         return f"{title} ({label})" if label else title
 
     ops: list[dict] = []
+    # A stepped round part's other steps, joined to the round body it starts from.
+    bodies = sorted(
+        (f for f in features if f.kind == "body" and result.start == "body"),
+        key=lambda f: -f.radius,
+    )
+    count["round_body"] = 1
+    for f in bodies[1:]:
+        # Sketched on the face it stands on: the end nearer the first body's ends.
+        def gap(p: np.ndarray) -> float:
+            return min(float(np.linalg.norm(p - e)) for e in (bodies[0].start, bodies[0].end))
+
+        if gap(f.end) < gap(f.start):
+            f = replace(f, start=f.end, end=f.start)
+        ops.append({**_round_op(f, name("round_body"), "join", frame), "from_face": True})
     # The order apply_features uses: bosses, turned shapes added, fillets, chamfers, turned
     # cuts, then holes and slots.
     for f in features:
-        if f.kind != "boss":
-            continue
-        height = float(np.linalg.norm(f.end - f.start))
-        ops.append(
-            {
-                "op": "extrude",
-                "name": name("boss", f.label),
-                "mode": "join",
-                "plane": _plane(frame.point(f.start), frame.direction(f.end - f.start)),
-                "sketch": {"circle": {"center": [0.0, 0.0], "diameter": round(2 * f.radius, 9)}},
-                "distance": round(height, 9),
-                "from_face": True,
-            }
-        )
+        if f.kind == "boss":
+            ops.append({**_round_op(f, name("boss", f.label), "join", frame), "from_face": True})
     turned_added = result.start != "turned"
     for r in result.revolved:
         if r.add_profile is None or (r.kind == "turned" and not turned_added):
@@ -246,18 +249,21 @@ def _start_op(result: ConversionResult, frame: _Frame) -> dict:
         )
         return op
     if result.start == "body":
-        body = next(f for f in result.features if f.kind == "body")
-        d = frame.direction(body.end - body.start)
-        height = float(np.linalg.norm(body.end - body.start))
-        return {
-            "op": "extrude",
-            "name": "Round body",
-            "mode": "new",
-            "plane": _plane(frame.point(body.start), d),
-            "sketch": {"circle": {"center": [0.0, 0.0], "diameter": round(2 * body.radius, 9)}},
-            "distance": round(height, 9),
-        }
+        body = max((f for f in result.features if f.kind == "body"), key=lambda f: f.radius)
+        return _round_op(body, "Round body", "new", frame)
     return {"op": "base", "name": "Base", "file": "base.step"}
+
+
+def _round_op(f: Feature, name: str, mode: str, frame: _Frame) -> dict:
+    """A circle sketched at a round body's or boss's start, extruded to its end."""
+    return {
+        "op": "extrude",
+        "name": name,
+        "mode": mode,
+        "plane": _plane(frame.point(f.start), frame.direction(f.end - f.start)),
+        "sketch": {"circle": {"center": [0.0, 0.0], "diameter": round(2 * f.radius, 9)}},
+        "distance": round(float(np.linalg.norm(f.end - f.start)), 9),
+    }
 
 
 def _edit_ops(edits, frame: _Frame) -> list[dict]:
