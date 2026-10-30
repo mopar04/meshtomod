@@ -23,6 +23,7 @@ button, .button {
 button:disabled { opacity: 0.5; cursor: default; }
 .primary { background: var(--accent); border-color: var(--accent); }
 .wide { display: block; width: 100%; margin-top: 12px; }
+.select { display: block; width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #3a424d; background: #232830; color: inherit; font: inherit; margin-bottom: 6px; }
 .link { background: none; border: 0; padding: 0; color: #7fb0ff; text-decoration: underline; }
 .levels { display: flex; gap: 6px; }
 .levels button { flex: 1; padding: 8px 4px; }

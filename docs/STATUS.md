@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-30 (production prep merged in PR #11; partial results, donate pop-up, open ends)_
+_Last updated: 2026-10-30 (M4 editable history; Zac's batch print scans run)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -94,8 +94,40 @@ _Last updated: 2026-10-30 (production prep merged in PR #11; partial results, do
   fillets, 82% within 0.3 mm, so still refused. The post and the round feet are not modelled.
 - Bin (thin walls), tape roll (open end, rough edges), cap (front and back as separate scans),
   smoke detector and bottle (freeform): not converting yet.
+- **Batch prints, from the Drive folder "MeshToMod Scans" (2026-10-30, Functional):** the 10
+  files under 10 MB were run through convert and the editable history. Each history replays
+  with no step left out and matches the model's volume.
+  - Turned Part Top: turned body Ø29.7 × 43.75 plus the Ø4 cross hole, through. 99.8% within
+    0.3 mm. Was refused as "curved surfaces" until the half-seen cross hole and the unscanned,
+    uneven base were handled (see DECISIONS).
+  - Peg: Ø16 round body with an Ø8 pin, 99.96%. Was 15% (only the Ø8 was built) until a
+    stepped round part became one round body per step.
+  - Peg Base 96.7% (Ø8.4 through hole, chamfers); Surfaces Plate bottom 99.4%; Freeform
+    Bottom 99.8%; Freeform Top 96.9% (one freeform surface); Size Gauge Top 95.6% and Bottom
+    93.9% (11 and 12 holes); Surfaces Plate Top 90.1% (bosses, countersink, holes; seven
+    small curved areas left flat).
+  - Turned Part Bottom: refused. It is the underside view only, in two separate pieces, half
+    the part; it needs merging with the top scan.
+  - Each Top/Bottom pair is one part scanned from both sides. Converted alone, each half is
+    closed flat where it wasn't seen, so holes read as blind. Merged (`merge.py`) and
+    converted: Size Gauge 97.7% with most holes through; Surfaces Plate 93.2% but the tapered
+    boss reads as a cone to a point; Freeform 81%; Turned Part refused (the bottom scan has a
+    thin ring about 35 mm across, likely the turntable or a brim). Converting merged scans is
+    next, with an "other side" upload in the web app.
+  - Not run: the 10 files of 10 MB or more (thin wall, Cali, bottle, wave skin, merged
+    scans), which the Drive connector won't download.
 
 ## In progress
+- **M4 editable history (2026-10-30, Zac: Fusion, Onshape, FreeCAD; "Merge once complete"):**
+  the Export menu now offers STEP (default), an editable history for each tool, or one zip
+  with everything. Each history rebuilds the part as a base solid plus one feature per step
+  (bosses, turned shapes, fillets, chamfers, holes, slots, the user's sinks and extrusions,
+  trim flush), each with its own size to change. The steps rebuild every test part exactly
+  in CadQuery (holed plate, standoff, bracket, turned part, surfaces plate, round bodies).
+  Not yet tried inside Fusion, Onshape or FreeCAD: Zac's first run in each is the test.
+  Stepped round parts (a peg) start from the biggest round body, with a join per step.
+  Sinks and extrusions join the history once the viewer can make them.
+
 - **Real-scan readiness, part 1 (scanner holder):** Zac's own design (`tests/fixtures/
   scanner_holder.stl`) is now a ground-truth test. It went from 77% to 95% within 0.3 mm,
   with volume within 0.5%. Changes:

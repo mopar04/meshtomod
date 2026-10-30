@@ -46,6 +46,14 @@ def test_convert_and_download():
     assert "bracket.step" in step.headers["content-disposition"]
     for key in ("model_stl", "deviation_ply"):
         assert client.get(body["downloads"][key]).status_code == 200
+    # The editable history, one zip per CAD tool and one with everything.
+    history = body["downloads"]["history"]
+    assert sorted(history) == ["all", "freecad", "fusion", "onshape"]
+    fusion = client.get(history["fusion"])
+    assert fusion.status_code == 200
+    assert fusion.content.startswith(b"PK")
+    assert "bracket-fusion-history.zip" in fusion.headers["content-disposition"]
+    assert client.get(history["all"].replace("all", "creo")).status_code == 404
 
 
 def test_convert_scales_inches():
