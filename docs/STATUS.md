@@ -241,6 +241,21 @@ Done in PR #11:
   access log. Guide: `docs/DEPLOY.md`. CI validates the Caddyfile and builds both images.
 - Privacy page and a source link in the footer (AGPL).
 
+Stuck conversions (2026-10-30, Zac closed the page mid-conversion and was then told "You
+already have a scan converting" with no way out; PR #22):
+- The page shows the running conversion: its stage ("Finding flat faces… step 5 of 10"), a bar
+  that moves by stage, the time so far, and Cancel. Cancel kills the job's process on the
+  server (`DELETE /api/jobs/{id}`). Stages come from `progress.stage()` calls in the pipeline.
+- A job no page has checked on for 3 minutes (`MESHTOMOD_JOB_ABANDON_S`) is stopped, so a
+  closed page can't hold the server or the one-scan-at-a-time limit.
+- The browser remembers its latest job (`lastJob.ts`). A reloaded or reopened page shows the
+  job's progress, or its result (model, deviation map, report, STEP download) if it finished
+  while away; results are still kept one hour. Without the original mesh open, the viewer
+  offers Model and Deviation only. A finished job is also found after a server restart.
+- Not tried in a real browser here (no browser in the build session): checked with the type
+  check, the API end to end on a local server (stages, cancel, a closed page's job stopped and
+  its files deleted) and tests in `test_jobs.py`.
+
 Still open before a public launch:
 - Done: repo renamed to `mopar04/meshtomod` and public; meshtomod.com and meshtomodel.com
   registered on Cloudflare.

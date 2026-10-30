@@ -70,7 +70,9 @@ Open PRs are the in-flight list: one place, always current, no merge needed to u
   - `convert.py` the pipeline: repair, quality, decimate, segment, cylinders, snap, rebuild,
     features, score
   - `fixtures.py` synthetic meshes with known answers, plus scanner-like noise
-  - `jobs.py` conversion jobs: queue, one spawned process per job, limits, result cleanup
+  - `jobs.py` conversion jobs: queue, one spawned process per job, limits, cancel, stopping
+    jobs no page is watching, result cleanup
+  - `progress.py` which stage a conversion has reached, for the progress bar
   - `config.py` server settings from `MESHTOMOD_*` environment variables
   - `api.py` HTTP API
 - `backend/tests/`: pytest suite

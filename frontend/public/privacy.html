@@ -29,7 +29,8 @@
       <p>
         When you open a mesh, the file is sent to our server to measure it and find the faces it
         can rest on. Nothing is stored for that step. When you convert, the scan is stored only
-        while it waits and converts, and it is deleted as soon as the conversion finishes or fails.
+        while it waits and converts, and it is deleted as soon as the conversion finishes, fails or is stopped. A conversion is stopped
+        if you cancel it, or if no page has checked on it for a few minutes (you closed the tab).
       </p>
 
       <h2>Your results</h2>
@@ -49,7 +50,9 @@
       <h2>In your browser</h2>
       <p>
         The app remembers your units and up-axis choices in your browser's local storage. They never
-        leave your device.
+        leave your device. It also keeps the random link to your latest conversion there, for up
+        to two hours, so a reloaded or reopened page can show its progress or its result (which
+        the server still deletes after one hour). Opening another mesh clears it.
       </p>
 
       <h2>Questions</h2>

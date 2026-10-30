@@ -198,10 +198,21 @@ start_job.__doc__ = "Queue a conversion; poll GET /api/jobs/{id} for the result.
 
 @app.get("/api/jobs/{job_id}")
 def job_status(job_id: str) -> dict:
-    job = jobs.get(job_id)
-    if job is None:
+    """The job's status, with its stage and time so far while it runs. Asking also tells the
+    server someone is still watching; a job nobody asks about for a few minutes is stopped."""
+    body = jobs.status(job_id)
+    if body is None:
         raise HTTPException(404, "Job expired or not found; convert again")
-    return job.as_dict(jobs.position(job))
+    return body
+
+
+@app.delete("/api/jobs/{job_id}")
+def cancel_job(job_id: str) -> dict:
+    """Stop a queued or running conversion. A finished one is left as it is."""
+    job = jobs.cancel(job_id)
+    if job is None:
+        raise HTTPException(404, "Job expired or not found")
+    return job.as_dict(None)
 
 
 @app.post("/api/convert")
@@ -217,7 +228,9 @@ async def convert_mesh(
     trim_flush: float = Form(0.0),
 ) -> dict:
     job = await _submit(request, file, level, units, second_file, lay_flat, origin, up, trim_flush)
-    await asyncio.to_thread(job.finished.wait)
+    # This request is the one watching the job, so keep it marked as watched while it waits.
+    while not await asyncio.to_thread(job.finished.wait, 10):
+        jobs.touch(job)
     if job.status == "failed":
         raise HTTPException(job.code, job.detail)
     return job.result

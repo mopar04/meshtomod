@@ -2,6 +2,25 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-30 (stuck conversions, PR #22)
+- **A job belongs to whoever is watching it.** The page checks a job's status every 1.5 s;
+  that check doubles as a heartbeat. A queued or running job nobody has checked on for 3
+  minutes is stopped and its files deleted. Why 3: a hidden browser tab can slow its checks to
+  once a minute, and with one conversion at a time an abandoned job blocks everyone queued
+  behind it. Not "cancel when the tab closes": a reload must keep the job.
+- **The job id is the key to a job**, as it already was for results: whoever has it can see,
+  download or cancel. It is 128 random bits and only ever sent to the page that started the
+  job. The "one at a time" refusal does not hand out the other job's id, since a shared
+  address (an office, a cafe) is not the same person.
+- **The progress bar moves by stage, not by time.** Ten named stages with rough weights
+  (`progress.py`); how long each takes depends on the scan, so no time estimates are shown,
+  only the time so far.
+- **Results are still kept one hour** (`MESHTOMOD_RESULT_TTL_MIN`, privacy page). The browser
+  keeps its latest job id for two hours (an hour of result after up to 15 minutes of
+  converting, with room to spare) and the server decides what is still there.
+- **Cancel with thread isolation can't stop the work** (tests and quick local runs): the job
+  counts as cancelled at once and its result is thrown away when it ends.
+
 ## 2026-10-30 (auto-simplify dense scans, Zac: "Add auto-simplify")
 - **Dense scans are simplified, not refused** (`simplify.py`). Each accuracy level has a
   triangle limit (`ToleranceLevel.simplify_above_faces`: Rough 500k, Functional 1M, Precise
