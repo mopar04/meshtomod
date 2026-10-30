@@ -30,10 +30,10 @@ import {
   UNITS,
   type Units,
 } from "./loadMesh";
-import JobProgress from "./JobProgress";
-import { forgetJob, lastJob, rememberJob } from "./lastJob";
 import UnitsPrompt from "./UnitsPrompt";
 import Viewer, { type ViewMode } from "./Viewer";
+import JobProgress from "./JobProgress";
+import { forgetJob, lastJob, rememberJob } from "./lastJob";
 
 const UNITS_KEY = "meshtomod.units";
 const UP_KEY = "meshtomod.up";

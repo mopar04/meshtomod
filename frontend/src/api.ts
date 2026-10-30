@@ -1,5 +1,15 @@
 import type { Units } from "./loadMesh";
 
+/** A request the server answered with an error: its message, and the HTTP status. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 export interface ToleranceLevel {
   key: string;
   label: string;
@@ -119,16 +129,6 @@ export interface Conversion {
   level: ToleranceLevel;
   report: ConversionReport;
   downloads: { step: string; model_stl: string; deviation_ply: string };
-}
-
-/** A request the server answered with an error: its message, and the HTTP status. */
-export class ApiError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-  }
 }
 
 async function json<T>(res: Response): Promise<T> {
