@@ -55,7 +55,11 @@ class RateLimited(Exception):
 
 
 def load_input(path: Path, filename: str, units: str, max_faces: int):
+    """The scan in mm. Over max_faces it is refused (it wouldn't fit in memory); over what any
+    level keeps it is simplified right away (simplify.cap), and further for the chosen level
+    once any second scan is merged in (simplify_for_level)."""
     from .mesh_io import MeshLoadError, load_mesh
+    from .simplify import cap
 
     try:
         mesh = load_mesh(path.read_bytes(), filename)
@@ -64,12 +68,12 @@ def load_input(path: Path, filename: str, units: str, max_faces: int):
     if len(mesh.faces) > max_faces:
         raise JobError(
             413,
-            f"{filename} has {len(mesh.faces):,} triangles; this server takes up to "
+            f"{filename} has {len(mesh.faces):,} triangles; this server opens up to "
             f"{max_faces:,}. Decimate it first (Blender, Meshmixer) and try again.",
         )
     if UNIT_SCALE[units] != 1.0:
         mesh.apply_scale(UNIT_SCALE[units])
-    return mesh
+    return cap(mesh)
 
 
 def run_conversion(folder: Path, opts: dict) -> dict:
@@ -82,6 +86,7 @@ def run_conversion(folder: Path, opts: dict) -> dict:
     from .merge import MergeError, merge_scans
     from .orient import homogeneous, lay_flat_rotation, place
     from .quality import deviation_colors
+    from .simplify import simplify_for_level
     from .step_io import write_step
     from .tolerance import get_level
 
@@ -96,6 +101,7 @@ def run_conversion(folder: Path, opts: dict) -> dict:
         except MergeError as exc:
             raise JobError(422, str(exc)) from exc
         mesh = merged.mesh
+    mesh, simplified = simplify_for_level(mesh, tol)
     laid = None
     laid_or_eye = np.eye(3)
     if opts.get("lay_flat") is not None:
@@ -135,6 +141,9 @@ def run_conversion(folder: Path, opts: dict) -> dict:
     report["placement"] = placement.as_dict()
     if merged is not None:
         report["merge"] = merged.report()
+    if simplified is not None:
+        report["simplified"] = simplified.as_dict()
+        report["notes"].append(simplified.note())
     return {
         "id": job_id,
         "level": tol.as_dict(),

@@ -2,6 +2,32 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-30 (auto-simplify dense scans, Zac: "Add auto-simplify")
+- **Dense scans are simplified, not refused** (`simplify.py`). Each accuracy level has a
+  triangle limit (`ToleranceLevel.simplify_above_faces`: Rough 500k, Functional 1M, Precise
+  2M); a scan over it is simplified to that count with the same gentle quadric decimation as
+  the working mesh. The pipeline segments and fits on 60k triangles anyway, so these limits
+  are about keeping the deviation map and fit score honest, not about features. Scans at or
+  under the limit are untouched.
+- **Every simplification is checked, and redone with more triangles if it fails.** 99.9% of
+  a fixed sample of the original's points must be within half the fit tolerance plus three
+  times the scan's noise of the simplified surface (smoothing noise isn't a loss), and at
+  most 5 points twice that far (a filled-in hole on a big part is under 0.1% of its points).
+  On a fail it retries at 1.6 times the count; if only the whole scan passes and it's under
+  2.5M it is kept whole. Over 2.5M (what the server converts) the best try is kept and the
+  note says detail may be softened. The check measures each point against its 12 nearest
+  triangle centres instead of trimesh's exact search (15 s to 1 s on 2M triangles, same
+  numbers; a miss can only overstate the distance).
+- **Two steps: a cap at load, then the level.** `jobs.load_input` caps each upload at the
+  Precise limit with Precise's check, so a merge of two scans never holds two huge meshes;
+  `simplify_for_level` then simplifies for the chosen level and reports from the uploaded
+  count (errors of the two steps added, an upper bound). Both are outside the job lifecycle
+  code (one call each in `jobs.py`).
+- **`MESHTOMOD_MAX_FACES` is now the most the server will open: 5M** (was 2.5M, the most it
+  converted). Loading and simplifying cost about 0.8 GB per million triangles (6.2M peaked at
+  4.9 GB, 70 s), and the API container has 7 GB. 5M is about a 200 MB binary STL, the upload
+  limit. A server whose `.env` was copied before this still says 2500000 there; raise it.
+
 ## 2026-10-29 (open ends and gappy scans)
 - **An opening whose rim lies flat is closed with that plane** (`ends.py`). A turntable scan
   never sees the face the part stood on; a tube can miss an end. If the rim is within two

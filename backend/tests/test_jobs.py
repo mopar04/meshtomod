@@ -78,6 +78,22 @@ def test_too_many_triangles_is_a_clear_413(monkeypatch):
     assert "Decimate" in res.json()["detail"]
 
 
+def test_dense_scan_is_simplified_and_says_so(monkeypatch):
+    from meshtomod.tolerance import LEVELS
+
+    scan = fixtures.subdivided(fixtures.l_bracket(), 1.0)
+    monkeypatch.setitem(LEVELS, "rough", LEVELS["rough"].with_overrides(simplify_above_faces=2_000))
+    files = {"file": ("bracket.stl", _stl(scan))}
+    res = client.post("/api/convert", files=files, data={"level": "rough"})
+    assert res.status_code == 200
+    report = res.json()["report"]
+    assert report["face_types"] == {"PLANE": 8}
+    done = report["simplified"]
+    assert done["from_faces"] == len(scan.faces)
+    assert done["to_faces"] <= 2_100 and not done["softened"]
+    assert any(n.startswith(f"Simplified from {len(scan.faces):,} to ") for n in report["notes"])
+
+
 def test_upload_size_limit(monkeypatch):
     monkeypatch.setattr(api.settings, "max_upload_mb", 0)
     res = client.post("/api/meshes", files={"file": ("box.stl", _stl(fixtures.box()))})

@@ -25,7 +25,10 @@ class Settings:
     # Uploads. The proxy in front should also cap the request body (multipart is parsed to
     # disk before the API sees the size).
     max_upload_mb: int = 200
-    max_faces: int = 2_500_000
+    # Scans over this many triangles are refused: loading and simplifying one takes about
+    # 0.8 GB per million (6.2 million peaked at 4.9 GB). Below it, dense scans are simplified
+    # for the chosen accuracy level (simplify.py) instead.
+    max_faces: int = 5_000_000
     # Jobs: how many conversions run at once, how many may wait, and how long one may take
     # (enforced only with process isolation, where a stuck job can be killed).
     max_running_jobs: int = 1
