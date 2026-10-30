@@ -63,6 +63,10 @@ Open PRs are the in-flight list: one place, always current, no merge needed to u
     stand on an axis
   - `sink.py` the user's sketch sunk into or extruded from the model, square to the surface
   - `recipe.py` feature recipe JSON: what the model is made of, in designer order
+  - `history.py` editable history: base solid plus one CAD step per feature, and a CadQuery
+    replay that proves the steps rebuild the model
+  - `history_files.py` the history as a zip per CAD tool, from the templates in `cad/`
+    (Fusion script, Onshape custom feature, FreeCAD macro)
   - `convert.py` the pipeline: repair, quality, decimate, segment, cylinders, snap, rebuild,
     features, score
   - `fixtures.py` synthetic meshes with known answers, plus scanner-like noise

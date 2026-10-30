@@ -25,6 +25,8 @@ import {
   UNITS,
   type Units,
 } from "./loadMesh";
+import { DONATE_URL } from "./DonatePrompt";
+import Export from "./Export";
 import UnitsPrompt from "./UnitsPrompt";
 import Viewer, { type ViewMode } from "./Viewer";
 
@@ -49,7 +51,6 @@ function storedUp(): UpAxis {
     return "z";
   }
 }
-const DONATE_URL = import.meta.env.VITE_DONATE_URL as string | undefined;
 // AGPL: people using the hosted app must be able to get its source.
 const SOURCE_URL =
   (import.meta.env.VITE_SOURCE_URL as string | undefined) || "https://github.com/mopar04/meshtomod";
@@ -405,9 +406,7 @@ export default function App() {
                 {n}
               </p>
             ))}
-            <a className="button primary wide" href={result!.downloads.step} download>
-              Download STEP
-            </a>
+            <Export downloads={result!.downloads} />
           </>
         )}
 
@@ -438,11 +437,9 @@ export default function App() {
             source
           </a>
           ). <a href="/privacy.html">Privacy</a>.{" "}
-          {DONATE_URL && (
-            <a href={DONATE_URL} target="_blank" rel="noreferrer">
-              Support the project
-            </a>
-          )}
+          <a href={DONATE_URL} target="_blank" rel="noreferrer">
+            Support the project
+          </a>
         </footer>
       </aside>
 

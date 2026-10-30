@@ -37,7 +37,13 @@ def test_job_runs_and_its_files_download():
     # The uploaded scan is not kept, only the results.
     folder = api.jobs.results_dir / body["id"]
     assert sorted(p.name for p in folder.iterdir()) == [
+        "base.step",
         "deviation.ply",
+        "history-all.zip",
+        "history-freecad.zip",
+        "history-fusion.zip",
+        "history-onshape.zip",
+        "history.json",
         "model.step",
         "model.stl",
         "outcome.json",

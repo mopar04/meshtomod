@@ -19,8 +19,8 @@ Segment, classify, fit, rebuild:
 8. **Export** STEP (AP214/AP242) plus a feature recipe JSON.
 
 STEP carries geometry only, never a feature tree. Clean analytic faces make direct editing work
-well in every CAD tool; for a real timeline we generate Onshape FeatureScript and a Fusion API
-script from the recipe (M4).
+well in every CAD tool; for a real timeline we generate a Fusion script, an Onshape custom
+feature and a FreeCAD macro that rebuild the part step by step (M4, `history.py`).
 
 ## Stack
 
@@ -103,7 +103,10 @@ hole pattern. Each step goes into the feature recipe so it stays editable in CAD
   **Thicken skin** for one-sided scans: wall thickness (default 3 mm), direction (in, out,
   centred), and edge finish (square, chamfer = thickness / 3, or full round = 0.49 ×
   thickness). The ragged scan border is trimmed to a smooth outline first.
-- **M4 Editable history**: Onshape FeatureScript and Fusion script from the recipe.
+- **M4 Editable history** (built 2026-10-30, waiting on Zac's first try in each tool): a
+  base solid plus one feature per boss, turned shape, fillet, chamfer, hole and edit, each
+  with its own size, for Fusion (script), Onshape (custom feature) and FreeCAD (macro).
+  Picked from the Export menu beside STEP.
 - **M5 Combine scans**: convert two scans, position them in the viewer (drag and rotate,
   face-to-face and axis snaps, or 3-point alignment), boolean union, then fillet or chamfer the
   new seam. Parts that don't touch get a connecting extrude or loft. Recorded in the recipe.
@@ -113,7 +116,9 @@ assemblies, Shapr3D-specific output (it imports the same STEP).
 
 ## Risks
 
-- No feature tree in STEP: mitigated by clean faces plus M4 replay scripts.
+- No feature tree in STEP: mitigated by clean faces plus the M4 history scripts. The scripts
+  can't be run in CI (no Fusion, Onshape or FreeCAD there); the CadQuery replay checks the
+  steps, and a real try in each tool checks the scripts.
 - Freeform panels (dash, A-pillar): few large B-spline patches; fallback to sewn shell + thicken.
 - Watertight stitching: rebuild edges from intersections, validate with BRepCheck.
 - Noisy or incomplete scans: repair step; user can tag regions as plane or ignore.

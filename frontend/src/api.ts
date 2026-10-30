@@ -129,8 +129,17 @@ export interface Conversion {
   id: string;
   level: ToleranceLevel;
   report: ConversionReport;
-  downloads: { step: string; model_stl: string; deviation_ply: string };
+  downloads: {
+    step: string;
+    model_stl: string;
+    deviation_ply: string;
+    /** Editable history zips; missing when the history couldn't be made. */
+    history?: Partial<Record<HistoryTool, string>>;
+  };
 }
+
+/** CAD tools with an editable history download, and "all" for one zip with everything. */
+export type HistoryTool = "fusion" | "onshape" | "freecad" | "all";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
