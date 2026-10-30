@@ -118,6 +118,11 @@ _Last updated: 2026-10-30 (M4 editable history; Zac's batch print scans run)_
     scans), which the Drive connector won't download.
 
 ## In progress
+- **Merged scans in the web app (2026-10-30):** after opening a scan, "Add a scan of the other
+  side" picks the second file; Convert merges the two and the result shows the overlap.
+  Making merged Top/Bottom pairs convert well is next (Surfaces Plate's tapered boss, Freeform,
+  the Turned Part's turntable ring).
+
 - **M4 editable history (2026-10-30, Zac: Fusion, Onshape, FreeCAD; "Merge once complete"):**
   the Export menu now offers STEP (default), an editable history for each tool, or one zip
   with everything. Each history rebuilds the part as a base solid plus one feature per step
@@ -241,7 +246,6 @@ Still open before a public launch:
   add the four DNS records (steps in `docs/DEPLOY.md`).
 - Decide: keep `scanner_holder.stl` as a public fixture; a contact address on the privacy page.
   (Default units: mm. Donate page: Zac's Buy Me a Coffee, below.)
-- The UI has no way to add the second scan for merging (API only).
 
 ## Next (M2.5: real-scan readiness, agreed with Zac)
 - Thin walls: detect wall pairs, measure thickness, patch missing wall areas from it (bin).
