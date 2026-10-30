@@ -472,9 +472,14 @@ def _points(mesh: Geo, faces: np.ndarray) -> np.ndarray:
     return mesh.vertices[np.unique(mesh.faces[faces])]
 
 
-def _mean_normal(mesh: Geo, faces: np.ndarray) -> np.ndarray:
+def _mean_normal(mesh: Geo, faces: np.ndarray) -> np.ndarray | None:
+    """None when the faces face every way at once (a tube, or both sides of a thin wall):
+    no one side to see the area from."""
     n = (mesh.face_normals[faces] * mesh.area_faces[faces, None]).sum(axis=0)
-    return n / np.linalg.norm(n)
+    size = np.linalg.norm(n)
+    if size < 1e-6 * mesh.area_faces[faces].sum():
+        return None
+    return n / size
 
 
 def frame_for(mesh: Geo, faces: np.ndarray, w: np.ndarray) -> Frame:
@@ -512,7 +517,7 @@ def _grow(mesh, group, parts, neighbours, faces_of, seeds, taken, level, margin,
     for _ in range(GROW_ROUNDS):
         faces = np.concatenate([faces_of[k] for k in group])
         w = _mean_normal(mesh, faces)
-        if _tilted(mesh, faces, w):
+        if w is None or _tilted(mesh, faces, w):
             return None
         frame = frame_for(mesh, faces, w)
         fit = fit_surface(frame, _points(mesh, faces), tol, margin, rng)

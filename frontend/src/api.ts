@@ -1,5 +1,15 @@
 import type { Units } from "./loadMesh";
 
+/** A request the server answered with an error: its message, and the HTTP status. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 export interface ToleranceLevel {
   key: string;
   label: string;
@@ -8,6 +18,8 @@ export interface ToleranceLevel {
   keep_fillets: boolean;
   min_fillet_radius_mm: number;
   angle_snap_deg: number;
+  /** Scans with more triangles are simplified to this many before converting. */
+  simplify_above_faces: number;
 }
 
 export interface MeshSummary {
@@ -61,6 +73,15 @@ export interface ConversionReport {
   };
   features: Feature[];
   notes: string[];
+  /** Present when the scan was simplified before converting (the notes say so too). */
+  simplified?: {
+    from_faces: number;
+    to_faces: number;
+    /** 99.9% of the scan's points are within this of the simplified scan. */
+    error_mm: number;
+    allowed_mm: number;
+    softened: boolean;
+  };
   placement: {
     origin: Origin;
     up: UpAxis;
@@ -133,7 +154,7 @@ export type HistoryTool = "fusion" | "onshape" | "freecad" | "all";
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail ?? `Request failed (${res.status})`);
+    throw new ApiError(body.detail ?? `Request failed (${res.status})`, res.status);
   }
   return res.json() as Promise<T>;
 }
@@ -155,44 +176,83 @@ export async function uploadMesh(file: File, units: Units) {
   );
 }
 
-interface JobStatus {
+/** Which stage a running conversion has reached. The bar moves by stage, not by time. */
+export interface JobProgress {
+  stage: string;
+  label: string;
+  step: number;
+  steps: number;
+  /** Rough share of the work done before this stage. */
+  percent: number;
+}
+
+export interface JobStatus {
   id: string;
-  status: "queued" | "running" | "done" | "failed";
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
   /** Jobs ahead of this one while it waits. */
   position?: number;
+  /** While running: seconds so far and the stage reached (null before the first). */
+  elapsed_s?: number;
+  progress?: JobProgress | null;
+  /** While queued or running: the server stops a job nobody checks on for this long. */
+  unwatched_stop_s?: number;
   detail?: string;
   result?: Conversion;
 }
 
-const POLL_MS = 1500;
+export const POLL_MS = 1500;
 
-/** Queue a conversion and wait for it. Big scans take minutes, so the server runs them as
- * jobs; onProgress hears "queued, 2 ahead" or "converting" while it waits. */
-export async function convertMesh(
-  file: File,
-  level: string,
-  units: Units,
-  place: PlacementOptions,
-  onProgress?: (message: string) => void,
-) {
+/** Queue a conversion. Big scans take minutes, so the server runs them as jobs: follow it
+ * with watchJob, which also keeps telling the server someone is still watching. */
+export async function startJob(file: File, level: string, units: Units, place: PlacementOptions) {
   const fields: Record<string, string> = { level, units, origin: place.origin, up: place.up };
   if (place.face) {
     fields.lay_flat = place.face.normal.join(",");
     fields.trim_flush = String(place.trimFlushMm);
   }
-  let job = await json<JobStatus>(
-    await fetch("/api/jobs", { method: "POST", body: form(file, fields) }),
-  );
+  return json<JobStatus>(await fetch("/api/jobs", { method: "POST", body: form(file, fields) }));
+}
+
+/** A job's status. Throws (with the server's reason) once it has expired. */
+export async function getJob(id: string) {
+  return json<JobStatus>(await fetch(`/api/jobs/${id}`));
+}
+
+/** Stop a queued or running job on the server. */
+export async function cancelJob(id: string) {
+  return json<JobStatus>(await fetch(`/api/jobs/${id}`, { method: "DELETE" }));
+}
+
+export const finished = (job: JobStatus) =>
+  job.status === "done" || job.status === "failed" || job.status === "cancelled";
+
+/** Check on a job every POLL_MS until it ends, telling onUpdate each time, and return its
+ * last status. Stops early (returning null) once stillWanted() says nobody cares any more. */
+export async function watchJob(
+  job: JobStatus,
+  onUpdate: (job: JobStatus) => void,
+  stillWanted: () => boolean,
+): Promise<JobStatus | null> {
   for (;;) {
-    if (job.status === "done" && job.result) return job.result;
-    if (job.status === "failed") throw new Error(job.detail ?? "Conversion failed");
-    onProgress?.(
-      job.status === "queued" && job.position
-        ? `Waiting for ${job.position} other scan${job.position > 1 ? "s" : ""} to finish…`
-        : `Converting ${file.name}…`,
-    );
+    if (!stillWanted()) return null;
+    onUpdate(job);
+    if (finished(job)) return job;
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-    job = await json<JobStatus>(await fetch(`/api/jobs/${job.id}`));
+    if (!stillWanted()) return null;
+    job = await getJobRetrying(job.id);
+  }
+}
+
+/** getJob, riding out a few failed checks in a row (a dropped connection, the server
+ * restarting for an update). A job the server no longer knows (404) fails at once. */
+async function getJobRetrying(id: string, tries = 8): Promise<JobStatus> {
+  for (let i = 1; ; i++) {
+    try {
+      return await getJob(id);
+    } catch (err) {
+      if (i >= tries || (err instanceof ApiError && err.status === 404)) throw err;
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS * i));
+    }
   }
 }
 

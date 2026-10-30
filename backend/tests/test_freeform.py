@@ -7,7 +7,15 @@ import pytest
 from meshtomod import fixtures as fx
 from meshtomod.cells import _sample_cell
 from meshtomod.convert import convert
-from meshtomod.freeform import Frame, _contains, _crosses, _offset, fit_height, fit_surface
+from meshtomod.freeform import (
+    Frame,
+    _contains,
+    _crosses,
+    _mean_normal,
+    _offset,
+    fit_height,
+    fit_surface,
+)
 from meshtomod.step_io import face_type_counts
 from meshtomod.tolerance import LEVELS
 
@@ -148,3 +156,14 @@ def test_cell_samples_fill_a_thin_slanted_slab():
     assert len(pts) == 64
     assert (pts >= -1e-9).all() and (pts <= [80, 0.4, 19] + np.array(1e-9)).all()
     assert np.ptp(pts[:, 0]) > 40 and np.ptp(pts[:, 2]) > 9
+
+
+def test_no_viewing_side_for_faces_that_face_every_way():
+    # A hollow standoff's wall (or both sides of a thin wall) has normals that cancel out.
+    # It used to divide by zero and crash the conversion; now it is just not a freeform area.
+    import trimesh
+
+    tube = trimesh.creation.annulus(1.6, 3.5, 18.0, sections=64)
+    assert _mean_normal(tube, np.arange(len(tube.faces))) is None
+    top = np.flatnonzero(tube.face_normals[:, 2] > 0.99)
+    assert np.allclose(_mean_normal(tube, top), [0, 0, 1])

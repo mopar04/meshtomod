@@ -46,6 +46,7 @@ Open PRs are the in-flight list: one place, always current, no merge needed to u
 ## Layout
 - `backend/meshtomod/`: Python geometry package and FastAPI app
   - `mesh_io.py` load and summarise meshes (trimesh)
+  - `simplify.py` dense scans simplified for the accuracy level on upload, with a check
   - `tolerance.py` accuracy level presets
   - `step_io.py` STEP read/write and face-type checks (CadQuery / OpenCASCADE)
   - `segment.py` region growing into planar regions, noise filter merges
@@ -69,7 +70,9 @@ Open PRs are the in-flight list: one place, always current, no merge needed to u
   - `convert.py` the pipeline: repair, quality, decimate, segment, cylinders, snap, rebuild,
     features, score
   - `fixtures.py` synthetic meshes with known answers, plus scanner-like noise
-  - `jobs.py` conversion jobs: queue, one spawned process per job, limits, result cleanup
+  - `jobs.py` conversion jobs: queue, one spawned process per job, limits, cancel, stopping
+    jobs no page is watching, result cleanup
+  - `progress.py` which stage a conversion has reached, for the progress bar
   - `config.py` server settings from `MESHTOMOD_*` environment variables
   - `api.py` HTTP API
 - `backend/tests/`: pytest suite

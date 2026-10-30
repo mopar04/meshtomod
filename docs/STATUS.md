@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-30 (M4 editable history; Zac's batch print scans run)_
+_Last updated: 2026-10-30 (merged Top/Bottom scans, #24; handoff to the mesh-to-mod channel)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -86,6 +86,15 @@ _Last updated: 2026-10-30 (M4 editable history; Zac's batch print scans run)_
     lines and arcs in a plane through its axis. Then the user's sinks and extrusions, marked
     to replay. Positions follow the placement, so they match the STEP.
 
+- **Auto-simplify on upload** (`simplify.py`, Zac 2026-10-30): scans over a level's limit
+  (Rough 500k, Functional 1M, Precise 2M triangles) are simplified before converting instead
+  of refused; the server opens up to 5M. Checked against the original (within half the fit
+  tolerance plus the scan noise) and redone with more triangles if not. The Mesh panel says
+  when a scan will be simplified, and the result notes "Simplified from X to Y triangles". On
+  a dense noisy turned part cut to a tenth, the Ø4 cross hole and every turned face come
+  back as from the full scan; a 6.2M-triangle scan goes to 1M in about 70 s. Not yet tried
+  on one of Zac's big raw exports.
+
 ## Real scans tried (Zac's, in `Developer/Nurbsmith/Test Scans`)
 - Scale checks out: tape roll 92.5/76.8/48.5 vs 93/76/48.5; cap 102.2–102.8 vs 102.
 - Box with floating bits: bits dropped; Rough converts (98% within 1 mm); Functional is held
@@ -116,6 +125,58 @@ _Last updated: 2026-10-30 (M4 editable history; Zac's batch print scans run)_
     next, with an "other side" upload in the web app.
   - Not run: the 10 files of 10 MB or more (thin wall, Cali, bottle, wave skin, merged
     scans), which the Drive connector won't download.
+- **Qidi Max4 toolhead cover (2026-10-30, Duet, via a draft GitHub release):** a 907k-triangle
+  thin-wall shell (walls about 1.6 mm, slots, logo, two hollow standoffs, U-shaped open end).
+  - In the app every level fails. Functional and Precise are refused as "largely curved"
+    (38% of the surface counted as curved). Rough is auto-simplified to 500k triangles and
+    refused the same way.
+  - Why "curved": the flat panels sag about 0.6 to 1 mm across their span, which is more
+    than the bow test allows. Scanner-rounded slot rims and about 2,000 pinholes also count
+    as bow. A rule for gently bent flat panels (curvature allowed in proportion to size)
+    takes Functional to 19%. That's still over the 15% limit, and the solid then won't
+    rebuild on 1.6 mm walls, so the rule is not merged. It was kept as a patch in the Mesh
+    to Mod project files, max4-test.
+  - Rough without auto-simplify converts, 90% within 1 mm, but it isn't usable:
+    - 3 separate solids;
+    - the open end is capped and stretched about 10 mm, and the U notch is filled;
+    - slots, logo and grille are gone;
+    - the two standoffs are solid 6 mm pegs with no screw hole.
+  - Fixed here: a crash ("SVD did not converge") when an area's faces point every way, like
+    a hollow standoff.
+
+## Handoff (2026-10-30): Duet M3 thread to the mesh-to-mod channel
+MeshToMod work moves to Zac's mesh-to-mod Duet channel (Zac: the conversation "needs to ...
+move to its bespoke thread"). Pick up from here.
+
+- **Merged to main through #24.** Duet's M3/M4 PRs: #13 to #19 (curved shapes, freeform,
+  thicken, stand on an axis, sink/extrude/recipe, partial matches), #21 (editable history for
+  Fusion, Onshape, FreeCAD), #24 (merged Top/Bottom scans). Also on main from other work: #22
+  (stuck conversions), #23 (auto-simplify dense scans), #25 (Max4 cover test).
+- **#24 recap, in plain words:** when Zac scans a part twice (top and bottom), the app lines
+  the two scans up and joins them. The join used to leave a crack along the seam and dropped
+  smaller pieces, so the converter guessed at edges. Now it keeps every real piece of both
+  scans, trims the overlap, and stitches the seam closed, so the merged scan is one part.
+  Three shape-fitting fixes rode along: a tapered boss reads its true top (Ø16 to Ø10, not a
+  cone to a point), the turntable ring under the turned part is ignored, and a ring boss whose
+  hole runs through the plate no longer mistakes the plate's underside for its own top.
+  Results on Zac's printed pairs: Turned Part 99.4%, Surfaces Plate 99.6% (was 93%), Freeform
+  98.2% (was 81%). Two new tests cover the turned part merged from two sides and the ring.
+- **Next, in order:**
+  1. The real Surfaces Plate's countersinks: the M5 comes out blind (5.087, 5.8 deep) and the
+     M3 as a plain Ø3.0 hole. The drawn pair gets both right. Debug notes: the M3's turned
+     group is refused over a 4.5 mm² flat inside the hole (about 1.8 mm above the plate's
+     underside), and the M5 group fits a 75 mm² flat disc across the hole; both look like the
+     scanner filling the hole on one side. Check the Bottom scan's holes before changing code.
+  2. The web app's "Add a scan of the other side" upload: written as commit 4d6a5bd on branch
+     `claude/project-thread-dbpogp` (kept off main because #22 rewrote the same code). #22 is
+     merged, so re-apply it onto `startJob`/`watchJob` in `frontend/src/App.tsx` and `api.ts`
+     (the API already takes `second_file`).
+  3. The 10 Drive scans of 10 MB or more (thin wall, Cali, bottle, wave skin and the merged
+     ones) that the Drive connector won't download: they need Zac's Mac or a smaller export.
+  4. The rest of the M3 list: thin walls from measured thickness (bin scan), the cap's front
+     and back scans, and wiring thicken, axes, sink/extrude, recipe download and
+     click-to-delete into the viewer.
+- **In flight:** nothing. No open Duet PR after #24; no uncommitted work.
 
 ## In progress
 - **Merged Top/Bottom scans (2026-10-30):** the merge now keeps every big piece of each scan,
@@ -126,8 +187,8 @@ _Last updated: 2026-10-30 (M4 editable history; Zac's batch print scans run)_
   Freeform 98.2% (up from 81%). Still off on the real plate: the M5 countersink comes out
   blind and the M3 as a plain hole; the same pair built from the drawing gets both right.
   Tests: the turned part merged from two sides, and the ring through a plate whose far side
-  the merge didn't join. The web app's "other side" upload is written and waits for PR #22,
-  which rewrites the same conversion code in the app.
+  the merge didn't join. Merged as #24. The web app's "other side" upload is written (commit
+  4d6a5bd) and can go in now that #22 is merged (see the handoff above).
 
 - **M4 editable history (2026-10-30, Zac: Fusion, Onshape, FreeCAD; "Merge once complete"):**
   the Export menu now offers STEP (default), an editable history for each tool, or one zip
@@ -243,6 +304,21 @@ Done in PR #11:
   access log. Guide: `docs/DEPLOY.md`. CI validates the Caddyfile and builds both images.
 - Privacy page and a source link in the footer (AGPL).
 
+Stuck conversions (2026-10-30, Zac closed the page mid-conversion and was then told "You
+already have a scan converting" with no way out; PR #22):
+- The page shows the running conversion: its stage ("Finding flat faces… step 5 of 10"), a bar
+  that moves by stage, the time so far, and Cancel. Cancel kills the job's process on the
+  server (`DELETE /api/jobs/{id}`). Stages come from `progress.stage()` calls in the pipeline.
+- A job no page has checked on for 3 minutes (`MESHTOMOD_JOB_ABANDON_S`) is stopped, so a
+  closed page can't hold the server or the one-scan-at-a-time limit.
+- The browser remembers its latest job (`lastJob.ts`). A reloaded or reopened page shows the
+  job's progress, or its result (model, deviation map, report, STEP download) if it finished
+  while away; results are still kept one hour. Without the original mesh open, the viewer
+  offers Model and Deviation only. A finished job is also found after a server restart.
+- Not tried in a real browser here (no browser in the build session): checked with the type
+  check, the API end to end on a local server (stages, cancel, a closed page's job stopped and
+  its files deleted) and tests in `test_jobs.py`.
+
 Still open before a public launch:
 - Done: repo renamed to `mopar04/meshtomod` and public; meshtomod.com and meshtomodel.com
   registered on Cloudflare.
@@ -252,7 +328,7 @@ Still open before a public launch:
   add the four DNS records (steps in `docs/DEPLOY.md`).
 - Decide: keep `scanner_holder.stl` as a public fixture; a contact address on the privacy page.
   (Default units: mm. Donate page: Zac's Buy Me a Coffee, below.)
-- The UI has no way to add the second scan for merging (API only; written, waits for #22).
+- The UI has no way to add the second scan for merging (API only; written as 4d6a5bd, ready to re-apply after #22).
 
 ## Next (M2.5: real-scan readiness, agreed with Zac)
 - Thin walls: detect wall pairs, measure thickness, patch missing wall areas from it (bin).

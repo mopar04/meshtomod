@@ -25,7 +25,10 @@ class Settings:
     # Uploads. The proxy in front should also cap the request body (multipart is parsed to
     # disk before the API sees the size).
     max_upload_mb: int = 200
-    max_faces: int = 2_500_000
+    # Scans over this many triangles are refused: loading and simplifying one takes about
+    # 0.8 GB per million (6.2 million peaked at 4.9 GB). Below it, dense scans are simplified
+    # for the chosen accuracy level (simplify.py) instead.
+    max_faces: int = 5_000_000
     # Jobs: how many conversions run at once, how many may wait, and how long one may take
     # (enforced only with process isolation, where a stuck job can be killed).
     max_running_jobs: int = 1
@@ -40,6 +43,10 @@ class Settings:
     # Fair use, per client address: jobs at once and jobs per hour.
     jobs_per_client: int = 1
     jobs_per_client_hour: int = 20
+    # A queued or running job nobody has checked on for this long is stopped (the browser
+    # checks every couple of seconds while its page is open; a hidden tab may slow to once a
+    # minute). 0 never stops one.
+    job_abandon_s: int = 180
     # The header holding the real client address when behind a proxy (X-Real-IP from our
     # Caddyfile, CF-Connecting-IP behind Cloudflare). Empty: use the socket address. Only
     # set this when the API can't be reached except through that proxy.
@@ -62,6 +69,7 @@ class Settings:
             job_memory_mb=_int("MESHTOMOD_JOB_MEMORY_MB", d.job_memory_mb),
             jobs_per_client=_int("MESHTOMOD_JOBS_PER_CLIENT", d.jobs_per_client),
             jobs_per_client_hour=_int("MESHTOMOD_JOBS_PER_CLIENT_HOUR", d.jobs_per_client_hour),
+            job_abandon_s=_int("MESHTOMOD_JOB_ABANDON_S", d.job_abandon_s),
             client_ip_header=os.environ.get("MESHTOMOD_CLIENT_IP_HEADER", "").strip(),
             result_ttl_min=_int("MESHTOMOD_RESULT_TTL_MIN", d.result_ttl_min),
             data_dir=Path(os.environ.get("MESHTOMOD_DATA_DIR", str(d.data_dir))),

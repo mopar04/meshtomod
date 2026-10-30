@@ -2,6 +2,51 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-30 (stuck conversions, PR #22)
+- **A job belongs to whoever is watching it.** The page checks a job's status every 1.5 s;
+  that check doubles as a heartbeat. A queued or running job nobody has checked on for 3
+  minutes is stopped and its files deleted. Why 3: a hidden browser tab can slow its checks to
+  once a minute, and with one conversion at a time an abandoned job blocks everyone queued
+  behind it. Not "cancel when the tab closes": a reload must keep the job.
+- **The job id is the key to a job**, as it already was for results: whoever has it can see,
+  download or cancel. It is 128 random bits and only ever sent to the page that started the
+  job. The "one at a time" refusal does not hand out the other job's id, since a shared
+  address (an office, a cafe) is not the same person.
+- **The progress bar moves by stage, not by time.** Ten named stages with rough weights
+  (`progress.py`); how long each takes depends on the scan, so no time estimates are shown,
+  only the time so far.
+- **Results are still kept one hour** (`MESHTOMOD_RESULT_TTL_MIN`, privacy page). The browser
+  keeps its latest job id for two hours (an hour of result after up to 15 minutes of
+  converting, with room to spare) and the server decides what is still there.
+- **Cancel with thread isolation can't stop the work** (tests and quick local runs): the job
+  counts as cancelled at once and its result is thrown away when it ends.
+
+## 2026-10-30 (auto-simplify dense scans, Zac: "Add auto-simplify")
+- **Dense scans are simplified, not refused** (`simplify.py`). Each accuracy level has a
+  triangle limit (`ToleranceLevel.simplify_above_faces`: Rough 500k, Functional 1M, Precise
+  2M); a scan over it is simplified to that count with the same gentle quadric decimation as
+  the working mesh. The pipeline segments and fits on 60k triangles anyway, so these limits
+  are about keeping the deviation map and fit score honest, not about features. Scans at or
+  under the limit are untouched.
+- **Every simplification is checked, and redone with more triangles if it fails.** 99.9% of
+  a fixed sample of the original's points must be within half the fit tolerance plus three
+  times the scan's noise of the simplified surface (smoothing noise isn't a loss), and at
+  most 5 points twice that far (a filled-in hole on a big part is under 0.1% of its points).
+  On a fail it retries at 1.6 times the count; if only the whole scan passes and it's under
+  2.5M it is kept whole. Over 2.5M (what the server converts) the best try is kept and the
+  note says detail may be softened. The check measures each point against its 12 nearest
+  triangle centres instead of trimesh's exact search (15 s to 1 s on 2M triangles, same
+  numbers; a miss can only overstate the distance).
+- **Two steps: a cap at load, then the level.** `jobs.load_input` caps each upload at the
+  Precise limit with Precise's check, so a merge of two scans never holds two huge meshes;
+  `simplify_for_level` then simplifies for the chosen level and reports from the uploaded
+  count (errors of the two steps added, an upper bound). Both are outside the job lifecycle
+  code (one call each in `jobs.py`).
+- **`MESHTOMOD_MAX_FACES` is now the most the server will open: 5M** (was 2.5M, the most it
+  converted). Loading and simplifying cost about 0.8 GB per million triangles (6.2M peaked at
+  4.9 GB, 70 s), and the API container has 7 GB. 5M is about a 200 MB binary STL, the upload
+  limit. A server whose `.env` was copied before this still says 2500000 there; raise it.
+
 ## 2026-10-30 (merged Top/Bottom scans)
 - **A merge keeps every big piece of each scan and stitches the seam** (`merge.py`). Each
   scan keeps the pieces that are at least a tenth of its biggest (a scan of a plate can come
@@ -19,6 +64,7 @@ Newest first. One entry per choice a later session should not have to relitigate
   or a seam) count as one face to stand on.
 - **A tapered boss's top is its top edge** (the highest 2% of the profile), not the mean of
   the flat, and an arc that ends on the axis is centred on it (a dome's cap).
+
 
 ## 2026-10-30 (M4: editable history)
 - **Targets: Fusion, Onshape and FreeCAD** (Zac: "usable on commonly used accessible paid apps

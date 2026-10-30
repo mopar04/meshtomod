@@ -25,6 +25,7 @@ from .ends import close_flat_ends
 from .features import EDGE_KINDS, Feature, apply_features, cylinder_between, plan_features
 from .freeform import Freeform, find_freeform
 from .orient import TurnAxis, distinct_axes
+from .progress import stage
 from .quality import GAP_WARNING, FitScore, ScanQuality, deviations, fit_score, scan_quality
 from .revolve import Revolved, find_revolved
 from .segment import Geo, Region, segment_planes
@@ -227,6 +228,7 @@ def convert(
 ) -> ConversionResult:
     """thickness: how to thicken a one-sided scan (an open sheet, not a closed part) into a
     wall. Without it, such a scan gets the defaults and a note saying so."""
+    stage("check")
     mesh = repair(mesh)
     scan = scan_quality(mesh, level)
 
@@ -243,6 +245,7 @@ def convert(
             min_feature_mm=max(level.min_feature_mm, MIN_FEATURE_TOLS * tol),
         )
 
+    stage("simplify")
     light = working_mesh(mesh)
     if not mesh.is_watertight:
         skin = find_skin(light, working, thickness or ThickenOptions(), np.random.default_rng(0))
@@ -251,7 +254,9 @@ def convert(
     # Only the working mesh is closed: the fit is still measured on what was scanned.
     light, capped = close_flat_ends(light, working.fit_tolerance_mm)
     work = Geo.of(light)
+    stage("faces")
     regions = segment_planes(work, working)
+    stage("features")
     patch_of, patches = find_cylinders(work, regions, working)
     planes, _ = planes_around(work, regions, patch_of, patches, working)
     patches = [p for p in patches if (patch_of == p.id).any()]
@@ -263,6 +268,7 @@ def convert(
     features, caps, skipped = plan_features(
         work, planes, patches, shared_lengths(work, labels), working
     )
+    stage("curves")
     revolved, features, planes, patches, labels = take_revolved(
         work, planes, patches, labels, features, working, scan.noise_mm
     )
@@ -282,6 +288,7 @@ def convert(
         + sum(float(work.area_faces[r.faces].sum()) for r in revolved)
         + sum(f.area_mm2 for f in freeform),
     )
+    stage("solid")
     base_planes = [r for r in planes if r.id not in caps]
     other_side = {
         f.patch: {f.planes[0]: f.planes[1], f.planes[1]: f.planes[0]}
@@ -407,6 +414,7 @@ def convert_skin(
 ) -> ConversionResult:
     """The wall for a one-sided scan. Its fit is scored against the scanned surface, not the
     solid: for a centred wall that surface is inside it."""
+    stage("solid")
     solid, sheet = thicken(skin, working.fit_tolerance_mm)
     dist = deviations(mesh, sheet, working.fit_tolerance_mm)
     plausible = fit_score(mesh, dist, working).within_tolerance_pct

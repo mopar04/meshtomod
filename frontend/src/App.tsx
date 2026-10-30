@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import {
   type Feature,
@@ -6,8 +6,13 @@ import {
   type PlacementOptions,
   type RestingFace,
   type UpAxis,
-  convertMesh,
+  ApiError,
+  cancelJob,
   fetchBuffer,
+  getJob,
+  type JobStatus,
+  startJob,
+  watchJob,
   getTolerances,
   uploadMesh,
   type Conversion,
@@ -29,6 +34,8 @@ import { DONATE_URL } from "./DonatePrompt";
 import Export from "./Export";
 import UnitsPrompt from "./UnitsPrompt";
 import Viewer, { type ViewMode } from "./Viewer";
+import JobProgress from "./JobProgress";
+import { forgetJob, lastJob, rememberJob } from "./lastJob";
 
 const UNITS_KEY = "meshtomod.units";
 const UP_KEY = "meshtomod.up";
@@ -83,6 +90,11 @@ export default function App() {
   const [levels, setLevels] = useState<ToleranceLevel[]>([]);
   const [level, setLevel] = useState("functional");
   const [busy, setBusy] = useState(false);
+  // The conversion being followed: its scan's name and latest status.
+  const [job, setJob] = useState<{ name: string; status: JobStatus } | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  // The id of the job whose result this page is waiting for; anything else stops watching.
+  const watching = useRef<string | null>(null);
   const [status, setStatus] = useState("Drop a mesh (STL, OBJ, PLY, 3MF) to start.");
   const [error, setError] = useState<string | null>(null);
 
@@ -95,6 +107,26 @@ export default function App() {
       .catch(() => setError("Backend not reachable. Start it with docker compose up."));
   }, []);
 
+  // Back after a reload or a closed tab: pick up the last conversion where it is. Once per
+  // page (React's development mode runs effects twice).
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (resumed.current) return;
+    resumed.current = true;
+    const saved = lastJob();
+    if (!saved) return;
+    getJob(saved.id)
+      .then((s) => {
+        if (s.status === "failed" || s.status === "cancelled") {
+          setError(`Your last conversion (${saved.name}) didn't finish. ${s.detail ?? ""}`);
+          forgetJob();
+        } else {
+          follow(s, saved.name, null);
+        }
+      })
+      .catch(() => forgetJob()); // expired: nothing to come back to
+  }, []);
+
   useEffect(() => {
     if (!picking) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setPicking(false);
@@ -103,12 +135,17 @@ export default function App() {
   }, [picking]);
 
   function choose(f: File) {
+    if (job) {
+      setError("Cancel the conversion in progress, or let it finish, before opening another mesh.");
+      return;
+    }
     const remembered = storedUnits();
     if (needsUnits(f) && !remembered) setPendingFile(f);
     else open(f, needsUnits(f) ? remembered! : "mm");
   }
 
   async function open(f: File, u: Units) {
+    forgetJob(); // a reload now should show this mesh, not the last result
     setFile(f);
     setUnits(u);
     clearResult();
@@ -173,24 +210,73 @@ export default function App() {
     if (!file || !raw) return;
     setBusy(true);
     setError(null);
-    setStatus(`Converting ${file.name}…`);
+    setPicking(false);
     try {
-      setPicking(false);
-      const res = await convertMesh(file, level, units, place, setStatus);
-      const [stl, ply] = await Promise.all([
-        fetchBuffer(res.downloads.model_stl),
-        fetchBuffer(res.downloads.deviation_ply),
-      ]);
-      setModel(toThree(parseBuffer(stl, "stl")));
-      setDeviation(toThree(parseBuffer(ply, "ply")));
-      setResult(res);
-      setMode("overlay");
-      setStatus(file.name);
+      const start = await startJob(file, level, units, place);
+      rememberJob(start.id, file.name);
+      await follow(start, file.name, file.name);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-      setStatus(file.name);
-    } finally {
       setBusy(false);
+    }
+  }
+
+  /** Show a job's progress until it ends, then its result or why it didn't finish.
+   * scanName: the open mesh it was started from, or null when picked up after a reload
+   * (then there is no scan to show beside the model). */
+  async function follow(start: JobStatus, name: string, scanName: string | null) {
+    watching.current = start.id;
+    setBusy(true);
+    setCancelling(false);
+    const mine = () => watching.current === start.id;
+    try {
+      const end = await watchJob(start, (s) => mine() && setJob({ name, status: s }), mine);
+      if (!end) return; // cancelled, or another conversion took over
+      if (end.status === "done" && end.result) {
+        const res = end.result;
+        const [stl, ply] = await Promise.all([
+          fetchBuffer(res.downloads.model_stl),
+          fetchBuffer(res.downloads.deviation_ply),
+        ]);
+        if (!mine()) return;
+        setModel(toThree(parseBuffer(stl, "stl")));
+        setDeviation(toThree(parseBuffer(ply, "ply")));
+        setResult(res);
+        setMode(scanName ? "overlay" : "model");
+        setStatus(scanName ?? `${name}: your last conversion. Open the mesh again to change it.`);
+      } else {
+        setError(end.detail ?? "Conversion failed");
+        forgetJob();
+      }
+    } catch (err) {
+      if (!mine()) return;
+      setError(err instanceof Error ? err.message : String(err));
+      if (err instanceof ApiError && err.status === 404) forgetJob();
+    } finally {
+      if (mine()) {
+        watching.current = null;
+        setJob(null);
+        setBusy(false);
+        setCancelling(false);
+      }
+    }
+  }
+
+  async function cancel() {
+    if (!job) return;
+    setCancelling(true);
+    try {
+      const s = await cancelJob(job.status.id);
+      if (s.status === "done") return; // it finished first: let the result show
+      watching.current = null;
+      forgetJob();
+      setJob(null);
+      setBusy(false);
+      setStatus(file ? `${file.name}: conversion cancelled` : "Conversion cancelled");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -214,12 +300,13 @@ export default function App() {
         </h1>
         <p className="tagline">Scan in, editable STEP out.</p>
 
-        <label className="button wide">
+        <label className={`button wide${job ? " disabled" : ""}`}>
           Open mesh
           <input
             type="file"
             accept={ACCEPTED}
             hidden
+            disabled={!!job}
             onChange={(e) => {
               const f = e.target.files?.[0];
               e.target.value = "";
@@ -344,6 +431,9 @@ export default function App() {
         <button className="primary wide" disabled={!file || busy} onClick={runConversion}>
           {busy ? "Converting…" : "Convert to STEP"}
         </button>
+        {job && (
+          <JobProgress name={job.name} job={job.status} cancelling={cancelling} onCancel={cancel} />
+        )}
 
         {report && (
           <>
@@ -421,6 +511,13 @@ export default function App() {
               <dt>Watertight</dt>
               <dd>{summary.watertight ? "yes" : "no (will be repaired)"}</dd>
             </dl>
+            {current && summary.faces > current.simplify_above_faces && (
+              <p className="note">
+                More than {current.label} needs: it will be simplified to about{" "}
+                {current.simplify_above_faces.toLocaleString()} triangles before converting,
+                keeping edges, holes and fillets.
+              </p>
+            )}
           </>
         )}
 
@@ -453,7 +550,10 @@ export default function App() {
         )}
         {model && (
           <div className="viewbar">
-            {(["scan", "model", "overlay", "deviation"] as ViewMode[]).map((m) => (
+            {(scan
+              ? (["scan", "model", "overlay", "deviation"] as ViewMode[])
+              : (["model", "deviation"] as ViewMode[])
+            ).map((m) => (
               <button key={m} className={m === mode ? "active" : ""} onClick={() => setMode(m)}>
                 {m[0].toUpperCase() + m.slice(1)}
               </button>
