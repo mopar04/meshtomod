@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from . import __version__
 from .config import Settings
 from .convert import drop_loose_pieces
+from .history_files import TOOLS
 from .jobs import UNIT_SCALE, Busy, JobManager, RateLimited
 from .mesh_io import SUPPORTED_FORMATS, MeshLoadError, file_format, load_mesh, summarize
 from .orient import check_options, resting_faces
@@ -236,4 +237,9 @@ def get_result(result_id: str, name: str) -> FileResponse:
         return FileResponse(folder / "model.step", media_type="application/step", filename=name)
     if name in ("model.stl", "deviation.ply"):
         return FileResponse(folder / name, media_type="application/octet-stream")
+    if name.endswith("-history.zip"):
+        tool = name.removesuffix("-history.zip").rsplit("-", 1)[-1]
+        path = folder / f"history-{tool}.zip"
+        if tool in (*TOOLS, "all") and path.exists():
+            return FileResponse(path, media_type="application/zip", filename=name)
     raise HTTPException(404, "Unknown file")

@@ -27,6 +27,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["meshtomod*"]
 
+[tool.setuptools.package-data]
+"meshtomod.cad" = ["*.fs"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
