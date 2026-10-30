@@ -160,6 +160,37 @@ Newest first. One entry per choice a later session should not have to relitigate
 - **Known limit:** below the smallest feature (2 mm at Functional), a flat between two rounds
   or a round on a shallow corner may come out as the corner. That is within the tolerance.
 
+## 2026-10-29 (hosting)
+- **A DigitalOcean droplet, not App Platform** (Zac said go ahead with DigitalOcean). Basic
+  Regular 4 vCPU / 8 GB at $48/mo. App Platform needs a dedicated container for 8 GB ($98 for
+  2 vCPU, $156 for 4), caps local disk at 4 GB, runs in a gVisor sandbox (spawned
+  OpenCASCADE processes and memory limits untested there) and has no volumes. The droplet runs
+  the same `docker-compose.prod.yml` CI already builds.
+- **Deploys pull, they aren't pushed.** The server checks `main` every 5 minutes and deploys a
+  commit only after all its GitHub checks pass, never mid-conversion (up to an hour), rolling
+  back if it doesn't come up healthy. The repo is public, so this needs no SSH key in GitHub,
+  no deploy token and no GitHub settings change; merging is deploying. Cost: up to 5 minutes'
+  delay, and anyone who can merge to `main` can deploy (the same people as today).
+- **Nobody logs in to set it up.** The droplet's initialization script runs
+  `deploy/bootstrap.sh` (Docker, swap, key-only SSH, log rotation, the updater). No DigitalOcean
+  connector exists, so Zac creates the droplet and the DNS records; everything else is code.
+
+## 2026-10-27 (production prep)
+- **Public hosting is the goal now** (Zac asked to push MeshToMod to production). Draft PR only
+  until he says merge; nothing is deployed or bought without his yes.
+- **Jobs without Redis.** An in-process queue in the API plus one spawned process per
+  conversion. A single server doesn't need RQ, a killed process frees its memory, and a timeout
+  can actually stop a job. Cost: a restart drops queued jobs, and the API must run as one
+  process. Move to Redis + RQ only if we need more than one API server.
+- **Spawn, not fork, for job processes.** OpenCASCADE and threads don't survive a fork.
+- **Keep nothing the user uploaded.** The scan is deleted when its job ends; results after
+  60 minutes. No access log. The privacy page states this and must stay true.
+- **Caddy in front** for HTTPS and the request size cap (multipart bodies are written to disk
+  before the API can check sizes). If DNS is on Cloudflare, records are DNS-only: its proxy
+  cuts requests at 100 s and uploads at 100 MB.
+- **Fair use per IP:** one job at a time and 20 per hour, queue of 4, 2.5M triangles max.
+  Starting values; tune once real traffic shows up.
+
 ## 2026-10-27 (rename, finished)
 - **Everything is renamed to MeshToMod** (Zac: "complete the renaming on GitHub"). The repo is
   `mopar04/meshtomod`, the Python package is `meshtomod`, and the frontend package is

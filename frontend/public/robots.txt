@@ -1,0 +1,4 @@
+# Crawlers may read the app and the privacy page. Conversion results are private, short-lived
+# files (deleted after an hour), so keep them out of indexes.
+User-agent: *
+Disallow: /api/results/

@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-29 (partial results, donate pop-up, handoff from the Claude app project)_
+_Last updated: 2026-10-30 (production prep merged in PR #11; partial results, donate pop-up, open ends)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -181,6 +181,36 @@ _Last updated: 2026-10-29 (partial results, donate pop-up, handoff from the Clau
   its boss after decimation (90%, partial), while the coarse CAD export and noisy scans give
   100%. Real scans are noisy, but a dense STL from CAD would hit it.
 
+## Production launch (started 2026-10-27, Zac: "push MeshToMod towards production")
+Where the work happens: production work is done from Zac's Claude Duet chat, in PR #11
+(branch `claude/project-thread-9iwv7n`, draft until Zac says merge). Sessions in the Mesh to Mod
+project: read that PR and this section before touching jobs, limits, deploy files or the
+privacy page, and leave notes here or on the PR rather than starting parallel production work.
+
+Done in PR #11:
+- Background jobs (`jobs.py`): `POST /api/jobs` + poll `GET /api/jobs/{id}`; the UI polls and
+  shows its place in the queue. One conversion at a time (configurable), a short queue, each job
+  in a spawned process with a timeout; out-of-memory fails one job, not the server.
+  `/api/convert` still works (waits on the same queue).
+- Limits (`config.py`, `MESHTOMOD_*` env): upload size, triangle count, queue length, one job at
+  a time and 20 per hour per IP, results deleted after 60 min (also after a restart), uploaded
+  scans deleted when the job ends, CORS from env.
+- Production stack: `docker-compose.prod.yml`, Caddy (static app, HTTPS, `/api` proxy, 420 MB
+  body cap, security headers, redirect domains), non-root API container with a healthcheck, no
+  access log. Guide: `docs/DEPLOY.md`. CI validates the Caddyfile and builds both images.
+- Privacy page and a source link in the footer (AGPL).
+
+Still open before a public launch:
+- Done: repo renamed to `mopar04/meshtomod` and public; meshtomod.com and meshtomodel.com
+  registered on Cloudflare.
+- Hosting: DigitalOcean droplet, Basic 4 vCPU / 8 GB, $48/mo (Zac said go ahead 2026-10-29).
+  `deploy/bootstrap.sh` sets the server up from its initialization script; `deploy/update.sh`
+  deploys each green commit on `main` every 5 minutes. Zac: merge PR #11, create the droplet,
+  add the four DNS records (steps in `docs/DEPLOY.md`).
+- Decide: keep `scanner_holder.stl` as a public fixture; a contact address on the privacy page.
+  (Default units: mm. Donate page: Zac's Buy Me a Coffee, below.)
+- The UI has no way to add the second scan for merging (API only).
+
 ## Next (M2.5: real-scan readiness, agreed with Zac)
 - Thin walls: detect wall pairs, measure thickness, patch missing wall areas from it (bin).
 - Open and partial scans: trim ragged rims so a rough open end counts as flat (a flat open
@@ -192,7 +222,6 @@ _Last updated: 2026-10-29 (partial results, donate pop-up, handoff from the Clau
   past the 15% freeform limit. Thicken (M3d) only takes smooth sheets, not these: a blocky
   part's top half isn't one height field, so it still needs the other side or a closing face.
 - Fewer spurious planes on warped real faces (RC stand gives about 1,000 faces).
-- Background jobs: a 2M-face scan takes 5 to 10 minutes.
 
 ## Known limits
 - Noise matrix (5 test parts × noise 0 / 0.02 / 0.1 / 0.3 mm × 3 levels): correct up to 0.1 mm
@@ -204,7 +233,7 @@ _Last updated: 2026-10-29 (partial results, donate pop-up, handoff from the Clau
   along a straight edge).
 - A skin is one height-field sheet with one outline: no holes in it, and its corners round
   off by about the smallest feature size. Rounded edges are slow (fillets on B-splines).
-- Conversion runs inside the request. Results are kept in a temp folder, last 50 only.
+- Jobs live in the API process: a restart drops queued and running jobs. One API process only.
 
 ## Zac's calls (2026-10-29)
 - Low-match results come back marked partial, not refused (done: `partial` in the report and
@@ -214,8 +243,8 @@ _Last updated: 2026-10-29 (partial results, donate pop-up, handoff from the Clau
 - Public hosting from day one (the signup itself is in the production PR, #11).
 - Donations: a Buy Me a Coffee pop-up with "Don't remind me again" (done: `DonatePrompt.tsx`,
   shown once per visit after 90 s). It opens Zac's page, https://buymeacoffee.com/voxelautocraft;
-  `VITE_DONATE_URL` overrides it. The footer link in App.tsx still reads only `VITE_DONATE_URL`,
-  so the production PR's `.env.example` should set it to the same page.
+  `VITE_DONATE_URL` overrides it. The footer link in App.tsx still reads only `VITE_DONATE_URL`
+  (empty in `Dockerfile.prod`), so it's hidden until the next PR points it at the same page.
 
 ## Handoff from the Claude app project (2026-10-29), where each item stands
 - Lay flat on a face and centre to origin, through to STEP: done since 2026-10-25 (Placement).
@@ -230,4 +259,5 @@ _Last updated: 2026-10-29 (partial results, donate pop-up, handoff from the Clau
 - Zac: print and scan the next test batch, including a reprint of calibration part #1.
 
 ## Open questions for Zac
-- None right now.
+- Keep `scanner_holder.stl` as a public fixture?
+- A contact address for the privacy page.
