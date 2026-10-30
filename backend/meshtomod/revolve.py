@@ -1725,7 +1725,11 @@ def _snap_pieces(
             continue
         radius = _snap_value(piece.radius, budget)
         centre = piece.centre.copy()
-        if abs(centre[1]) <= tol:
+        # An arc that ends on the axis is a ball: off it, it would leave a point or a dimple.
+        on_axis = ends is not None and any(
+            neighbour(k, step) is None and ends[step > 0].kind == "axis" for step in (-1, 1)
+        )
+        if abs(centre[1]) <= tol or on_axis:
             centre[1] = 0.0
         tangent: list[Line2] = []
         for step in (-1, 1):
@@ -1967,6 +1971,10 @@ class Revolved:
         return out
 
 
+# A tapered boss's top is the part of its outline within this share of its height of the top.
+TOP_SHARE = 0.02
+
+
 def describe(
     outline: Outline, bases: list[Region], axis: Axis, has_add: bool, has_cut: bool
 ) -> tuple[str, dict]:
@@ -1999,7 +2007,8 @@ def describe(
                 "diameter_mm": diameter,
             }
         if kinds.count("cone") == 1 and set(kinds) <= {"cone", "plane"}:
-            top = float(sampled[above >= above.max() - 1e-6, 1].max())
+            # The top's width: noise can leave its flat a hair off square to the axis.
+            top = float(sampled[above >= (1 - TOP_SHARE) * above.max(), 1].max())
             return "tapered_boss", {
                 "diameters_mm": [diameter, round(2 * top, 3)],
                 "height_mm": height,
