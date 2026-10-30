@@ -1105,6 +1105,41 @@ def find_groups(
         deep = rp < outside - POCKET_TOLS * level.fit_tolerance_mm
         return bool(area[pf][deep].sum() >= 0.5 * area[pf].sum())
 
+    def _settle_bases(
+        members: set[int], square_planes: set[int], refused: set[int], junk: set[int]
+    ) -> None:
+        """Once the shape has grown: a flat face square to the axis that reaches well past
+        the shape is what it stands on, not its cap (the far side of a plate that a ring's
+        bore runs through, when the scan didn't join the plate's edge to it). Small flat
+        areas lying on a face it stands on are part of that face, and only what still
+        borders the shape runs into it."""
+        curved = [m for m in members if m not in plane_by_id]
+        if not curved:
+            return
+        reach = max(level.min_feature_mm, 4 * level.fit_tolerance_mm)
+        radius = axis.to_profile(centres[np.concatenate([faces_of[m] for m in curved])])[:, 1]
+        for m in sorted(members):
+            r = axis.to_profile(centres[faces_of[m]])[:, 1]
+            if square(m, axis) and r.max() > radius.max() + reach:
+                members.discard(m)
+                square_planes.add(m)
+        if not square_planes:
+            return
+        small = POCKET_SHARE * sum(area[faces_of[m]].sum() for m in members)
+        for m in sorted((members | refused) & set(plane_by_id)):
+            pts = centres[faces_of[m]]
+            if area[faces_of[m]].sum() <= small and any(
+                np.abs(pts @ plane_by_id[b].plane.normal - plane_by_id[b].plane.offset).max()
+                <= POCKET_TOLS * level.fit_tolerance_mm
+                for b in square_planes
+            ):
+                members.discard(m)
+                refused.discard(m)
+                junk.add(m)
+        for lab in list(refused):
+            if not touching.get(lab, set()) & members:
+                refused.discard(lab)
+
     # Seeds that touch, by label.
     seed_list = sorted(seeds & set(faces_of))
     index = {s: i for i, s in enumerate(seed_list)}
@@ -1158,10 +1193,16 @@ def find_groups(
                     junk.add(lab)
                 else:
                     refused.add(lab)
+        _settle_bases(members, square_planes, refused, junk)
         pockets = refused - cuttable
         if pockets and (square_planes or not sunk(pockets, members, axis)):
             continue  # it runs into something that isn't turned about this axis
-        bases = [plane_by_id[i] for i in sorted(square_planes)]
+        # Noise or a seam can split the face it stands on in two; that is still one face.
+        bases: list[Region] = []
+        for r in sorted((plane_by_id[i] for i in square_planes), key=lambda r: -r.area):
+            if not any(level_with(r.id, b.id) for b in bases):
+                bases.append(r)
+        bases.sort(key=lambda r: r.id)
         if len(bases) > 2 or (
             len(bases) == 2 and bases[0].plane.normal @ bases[1].plane.normal > 0
         ):

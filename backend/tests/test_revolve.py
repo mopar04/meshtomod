@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+import trimesh
 
 from meshtomod import fixtures as fx
 from meshtomod.convert import convert
@@ -123,6 +124,35 @@ def test_turned_scan_with_half_seen_cross_hole_and_no_base(torn, sigma, height):
     assert hole == {"type": "hole", "diameter_mm": 4.0, "through": True}
     assert report["fit"]["within_tolerance_pct"] > 99.5
     assert any("closed flat" in note for note in report["notes"])
+
+
+def far_side_not_joined(mesh, gap: float = 0.6):
+    """Two scans merged where the seam along the plate's far side wasn't joined: the far
+    side stops short of the plate's sides, so it reaches the rest of the part only through
+    the holes."""
+    v, f = mesh.vertices.copy(), mesh.faces.copy()
+    far = (mesh.face_normals[:, 2] < -0.9) & (mesh.triangles_center[:, 2] < 0.1)
+    rim = np.flatnonzero(
+        (np.abs(v[:, 2]) < 1e-6) & ((np.abs(v[:, 0]) > 34.99) | (np.abs(v[:, 1]) > 24.99))
+    )
+    copy = np.full(len(v), -1)
+    copy[rim] = len(v) + np.arange(len(rim))
+    moved = v[rim].copy()
+    moved[:, :2] *= 1 - gap / np.abs(moved[:, :2]).max(axis=1, keepdims=True)
+    f[far] = np.where(copy[f[far]] >= 0, copy[f[far]], f[far])
+    return trimesh.Trimesh(np.vstack([v, moved]), f, process=False)
+
+
+def test_ring_through_a_plate_whose_far_side_isnt_joined():
+    # The ring's bore runs through the plate to its far side; that side is what the ring
+    # stands on, not its top, even though the scan joins it to nothing but the holes.
+    _, truth, _, features = PARTS["surfaces_plate"]
+    mesh = far_side_not_joined(fx.subdivided(fx.surfaces_plate(), 0.5))
+    result = convert(fx.rotated(fx.add_noise(mesh, 0.02, seed=3), 3), LEVELS["functional"])
+    report = result.report()
+    assert result.solid.isValid()
+    assert ordered(report["features"]) == ordered(features)
+    assert report["fit"]["within_tolerance_pct"] > 99.5
 
 
 def test_arc_fit_recovers_circle():

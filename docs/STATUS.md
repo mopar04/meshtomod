@@ -118,9 +118,16 @@ _Last updated: 2026-10-30 (M4 editable history; Zac's batch print scans run)_
     scans), which the Drive connector won't download.
 
 ## In progress
-- **Merged Top/Bottom scans (2026-10-30):** making the merged pairs convert well (Surfaces
-  Plate's tapered boss, Freeform, the Turned Part's turntable ring). The web app's "other side"
-  upload is written and waits for PR #22, which rewrites the same conversion code in the app.
+- **Merged Top/Bottom scans (2026-10-30):** the merge now keeps every big piece of each scan,
+  trims the second scan to where it lies off the first and stitches the two rims together, so
+  a merged pair converts as one part. Zac's printed pairs, merged then converted (Functional):
+  Turned Part 99.4% (Ø30 x 44 turned body, Ø4 cross hole, its scanned base used), Surfaces
+  Plate 99.6% (up from 93%: dome, tapered boss Ø16 to Ø10, ring Ø19.7 with its bore through),
+  Freeform 98.2% (up from 81%). Still off on the real plate: the M5 countersink comes out
+  blind and the M3 as a plain hole; the same pair built from the drawing gets both right.
+  Tests: the turned part merged from two sides, and the ring through a plate whose far side
+  the merge didn't join. The web app's "other side" upload is written and waits for PR #22,
+  which rewrites the same conversion code in the app.
 
 - **M4 editable history (2026-10-30, Zac: Fusion, Onshape, FreeCAD; "Merge once complete"):**
   the Export menu now offers STEP (default), an editable history for each tool, or one zip
