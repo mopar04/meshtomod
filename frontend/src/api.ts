@@ -68,12 +68,6 @@ export interface ConversionReport {
     matrix: number[][];
     trimmed_mm: number;
   };
-  /** Present when a second scan of the other side was merged in. */
-  merge?: {
-    /** Share of the surface both scans saw. */
-    overlap_pct: number;
-    air_pct: number;
-  };
 }
 
 export interface Feature {
@@ -148,10 +142,9 @@ export async function getTolerances() {
   return json<{ default: string; levels: ToleranceLevel[] }>(await fetch("/api/tolerances"));
 }
 
-function form(file: File, fields: Record<string, string>, second?: File | null) {
+function form(file: File, fields: Record<string, string>) {
   const body = new FormData();
   body.append("file", file);
-  if (second) body.append("second_file", second);
   for (const [k, v] of Object.entries(fields)) body.append(k, v);
   return body;
 }
@@ -181,8 +174,6 @@ export async function convertMesh(
   units: Units,
   place: PlacementOptions,
   onProgress?: (message: string) => void,
-  /** A scan of the part's other side, lined up and merged with the first on the server. */
-  second?: File | null,
 ) {
   const fields: Record<string, string> = { level, units, origin: place.origin, up: place.up };
   if (place.face) {
@@ -190,7 +181,7 @@ export async function convertMesh(
     fields.trim_flush = String(place.trimFlushMm);
   }
   let job = await json<JobStatus>(
-    await fetch("/api/jobs", { method: "POST", body: form(file, fields, second) }),
+    await fetch("/api/jobs", { method: "POST", body: form(file, fields) }),
   );
   for (;;) {
     if (job.status === "done" && job.result) return job.result;
@@ -198,9 +189,7 @@ export async function convertMesh(
     onProgress?.(
       job.status === "queued" && job.position
         ? `Waiting for ${job.position} other scan${job.position > 1 ? "s" : ""} to finish…`
-        : second
-          ? `Lining up both sides and converting…`
-          : `Converting ${file.name}…`,
+        : `Converting ${file.name}…`,
     );
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
     job = await json<JobStatus>(await fetch(`/api/jobs/${job.id}`));

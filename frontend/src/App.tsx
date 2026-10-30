@@ -67,8 +67,6 @@ function storedUnits(): Units | null {
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  // An optional scan of the other side (the bottom, say), merged with the first before converting.
-  const [second, setSecond] = useState<File | null>(null);
   const [units, setUnits] = useState<Units>("mm");
   const [raw, setRaw] = useState<THREE.BufferGeometry | null>(null);
   const [restingFaces, setRestingFaces] = useState<RestingFace[]>([]);
@@ -112,7 +110,6 @@ export default function App() {
 
   async function open(f: File, u: Units) {
     setFile(f);
-    setSecond(null);
     setUnits(u);
     clearResult();
     setSummary(null);
@@ -179,7 +176,7 @@ export default function App() {
     setStatus(`Converting ${file.name}…`);
     try {
       setPicking(false);
-      const res = await convertMesh(file, level, units, place, setStatus, second);
+      const res = await convertMesh(file, level, units, place, setStatus);
       const [stl, ply] = await Promise.all([
         fetchBuffer(res.downloads.model_stl),
         fetchBuffer(res.downloads.deviation_ply),
@@ -231,41 +228,6 @@ export default function App() {
           />
         </label>
         <p className="status">{status}</p>
-        {file && (
-          <div className="second-side">
-            {second ? (
-              <>
-                <span className="muted">Other side: {second.name}</span>
-                <button
-                  className="link"
-                  onClick={() => {
-                    setSecond(null);
-                    clearResult();
-                  }}
-                >
-                  Remove
-                </button>
-              </>
-            ) : (
-              <label className="link">
-                Add a scan of the other side
-                <input
-                  type="file"
-                  accept={ACCEPTED}
-                  hidden
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    e.target.value = "";
-                    if (f) {
-                      setSecond(f);
-                      clearResult();
-                    }
-                  }}
-                />
-              </label>
-            )}
-          </div>
-        )}
         {error && <p className="error">{error}</p>}
 
         <h2>Accuracy</h2>
@@ -393,12 +355,6 @@ export default function App() {
               </span>
             </div>
             <dl>
-              {report.merge && (
-                <>
-                  <dt>Two scans merged</dt>
-                  <dd>{report.merge.overlap_pct.toFixed(0)}% overlap</dd>
-                </>
-              )}
               <dt>Average deviation</dt>
               <dd>{report.fit.mean_mm.toFixed(2)} mm</dd>
               <dt>95% of points within</dt>

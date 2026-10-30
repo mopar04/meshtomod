@@ -118,10 +118,9 @@ _Last updated: 2026-10-30 (M4 editable history; Zac's batch print scans run)_
     scans), which the Drive connector won't download.
 
 ## In progress
-- **Merged scans in the web app (2026-10-30):** after opening a scan, "Add a scan of the other
-  side" picks the second file; Convert merges the two and the result shows the overlap.
-  Making merged Top/Bottom pairs convert well is next (Surfaces Plate's tapered boss, Freeform,
-  the Turned Part's turntable ring).
+- **Merged Top/Bottom scans (2026-10-30):** making the merged pairs convert well (Surfaces
+  Plate's tapered boss, Freeform, the Turned Part's turntable ring). The web app's "other side"
+  upload is written and waits for PR #22, which rewrites the same conversion code in the app.
 
 - **M4 editable history (2026-10-30, Zac: Fusion, Onshape, FreeCAD; "Merge once complete"):**
   the Export menu now offers STEP (default), an editable history for each tool, or one zip
