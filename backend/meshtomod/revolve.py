@@ -1957,6 +1957,15 @@ class Revolved:
     def as_dict(self) -> dict:
         return {"type": self.kind, **self.dims}
 
+    def on_surface(self, points: np.ndarray, tol: float) -> np.ndarray:
+        """Which points lie on the shape's surface, within tol."""
+        q = self.axis.to_profile(points)
+        out = np.zeros(len(q), bool)
+        path = _outline_path(self.outline)
+        for i in range(0, len(q), 2000):
+            out[i : i + 2000] = _gap(q[i : i + 2000], path) <= tol
+        return out
+
 
 def describe(
     outline: Outline, bases: list[Region], axis: Axis, has_add: bool, has_cut: bool
@@ -2088,7 +2097,8 @@ def find_revolved(
         if add is None and cut is None:
             continue
         kind, dims = describe(outline, group.bases, group.axis, add is not None, cut is not None)
-        faces = np.flatnonzero(np.isin(labels, list(group.labels | group.junk)))
+        every = group.labels | group.junk | group.pockets
+        faces = np.flatnonzero(np.isin(labels, list(every)))
         z = Axis.to_profile(group.axis, mesh.vertices[mesh.faces[faces]].mean(axis=1))[:, 0]
         inside = np.ones(len(faces), bool)
         for b in group.bases:
@@ -2107,8 +2117,8 @@ def find_revolved(
                 outline,
                 add,
                 cut,
-                group.labels | group.junk | group.pockets,
-                np.flatnonzero(np.isin(labels, list(group.labels | group.junk | group.pockets))),
+                every,
+                faces,
                 inside,
                 dims,
                 *profiles,
@@ -2118,10 +2128,27 @@ def find_revolved(
     return found
 
 
+def _outline_path(outline: Outline) -> np.ndarray:
+    """The outline as a closed polyline in (z, r)."""
+    path = np.concatenate([_samples(outline, k)[:-1] for k in range(len(outline.pieces))])
+    return np.concatenate([path, outline.points[-1][None]])
+
+
+def _gap(q: np.ndarray, path: np.ndarray) -> np.ndarray:
+    """How far each (z, r) point is from a closed polyline."""
+    a, b = path, np.roll(path, -1, axis=0)
+    d = b - a
+    t = np.clip(
+        ((q[:, None] - a[None]) * d[None]).sum(axis=2) / np.maximum((d * d).sum(axis=1), 1e-12),
+        0.0,
+        1.0,
+    )
+    return np.linalg.norm(q[:, None] - (a[None] + t[..., None] * d[None]), axis=2).min(axis=1)
+
+
 def _sunk_faces(q: np.ndarray, outline: Outline, depth: float) -> np.ndarray:
     """Which (z, r) points lie inside a turned part's outline, deeper than depth below it."""
-    path = np.concatenate([_samples(outline, k)[:-1] for k in range(len(outline.pieces))])
-    path = np.concatenate([path, outline.points[-1][None]])
+    path = _outline_path(outline)
     a, b = path, np.roll(path, -1, axis=0)
     # Inside: crossings of a ray along +z (the outline closes along the axis).
     crosses = (a[None, :, 1] > q[:, None, 1]) != (b[None, :, 1] > q[:, None, 1])
@@ -2131,14 +2158,7 @@ def _sunk_faces(q: np.ndarray, outline: Outline, depth: float) -> np.ndarray:
             + (q[:, None, 1] - a[None, :, 1]) * (b - a)[None, :, 0] / (b - a)[None, :, 1]
         )
     inside = (crosses & (z > q[:, None, 0])).sum(axis=1) % 2 == 1
-    d = b - a
-    t = np.clip(
-        ((q[:, None] - a[None]) * d[None]).sum(axis=2) / np.maximum((d * d).sum(axis=1), 1e-12),
-        0.0,
-        1.0,
-    )
-    gap = np.linalg.norm(q[:, None] - (a[None] + t[..., None] * d[None]), axis=2).min(axis=1)
-    return inside & (gap > depth)
+    return inside & (_gap(q, path) > depth)
 
 
 def cross_holes(

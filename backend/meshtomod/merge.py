@@ -16,7 +16,8 @@ placed on the first by:
 4. A last pass that also pins each scan's rim to the other, point to point: when the scans
    overlap only on upright walls, nothing else says how high the second one sits.
 
-Where the scans overlap, the first scan's surface is kept and the second's dropped.
+Where the scans overlap, the first scan's surface is kept and the second's dropped, and the
+seam between them is stitched with a strip of triangles, so the part is one piece again.
 """
 
 from __future__ import annotations
@@ -56,6 +57,18 @@ REFINE_REACH_MM = 2.0
 OVERLAP_MM = 0.3
 # A pose is only trusted if this share of the second scan lies on the first.
 MIN_OVERLAP = 0.05
+# Pieces of a scan under this share of its biggest piece's area are specks (as in
+# convert.LOOSE_PIECE_SHARE) and left out.
+PIECE_SHARE = 0.1
+# Where the second scan lies on the first, it is dropped. Noise leaves specks of each kind
+# inside the other: patches under this area are given to their surroundings.
+SPECK_MM2 = 4.0
+# Seam stitching: a stretch of the second scan's rim within this of the first scan's rim is
+# joined to it, if at least this many rim points long and if the two stretches are about as
+# long as each other (within this ratio).
+STITCH_MM = 2.0
+STITCH_MIN_POINTS = 4
+STITCH_LENGTH_RATIO = 2.0
 
 
 class MergeError(ValueError):
@@ -77,7 +90,7 @@ class MergeResult:
 
 
 def merge_scans(first: trimesh.Trimesh, second: trimesh.Trimesh) -> MergeResult:
-    a, b = _main_piece(first), _main_piece(second)
+    a, b = _part(first), _part(second)
     pa, na = _sample(a, 0)
     pb, nb = _sample(b, 1)
     tree_a, tree_b = cKDTree(pa), cKDTree(pb)
@@ -139,18 +152,161 @@ def merge_scans(first: trimesh.Trimesh, second: trimesh.Trimesh) -> MergeResult:
     placed = b.copy()
     placed.apply_transform(t)
     # Keep the first scan where both saw the surface.
-    d, _ = tree_a.query(placed.triangles_center)
-    placed.update_faces(d > OVERLAP_MM)
+    placed.update_faces(_beyond(a, placed))
     placed.remove_unreferenced_vertices()
-    merged = trimesh.util.concatenate([a, placed])
-    return MergeResult(merged, t, 100 * overlap, 100 * air)
+    return MergeResult(_stitched(a, placed), t, 100 * overlap, 100 * air)
 
 
-def _main_piece(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+def _beyond(a: trimesh.Trimesh, b: trimesh.Trimesh) -> np.ndarray:
+    """Which of b's faces lie off a's surface: the ones to keep. Measured from each face's
+    corners to a's surface, and cleaned of specks so the kept part ends in a clean rim along
+    a's rim instead of a sieve."""
+    off = (_surface_distance(a, b.vertices)[b.faces] > OVERLAP_MM).any(axis=1)
+    adjacency = b.face_adjacency
+    for kind in (True, False):  # specks kept inside the overlap, then holes in what's kept
+        same = adjacency[(off[adjacency[:, 0]] == kind) & (off[adjacency[:, 1]] == kind)]
+        labels = trimesh.graph.connected_component_labels(same, len(b.faces))
+        area = np.bincount(labels, weights=b.area_faces * (off == kind))
+        speck = (off == kind) & (area[labels] < SPECK_MM2)
+        off[speck] = not kind
+    return off
+
+
+def _surface_distance(mesh: trimesh.Trimesh, points: np.ndarray, k: int = 8) -> np.ndarray:
+    """How far each point is from the mesh's surface, measured to the k triangles whose
+    centres are nearest (trimesh's exact search holds every pair in memory at once). Missing
+    the true nearest triangle can only overstate the distance."""
+    triangles = mesh.triangles
+    _, near = cKDTree(triangles.mean(axis=1)).query(points, k=min(k, len(triangles)))
+    near = near.reshape(len(points), -1)
+    out = np.empty(len(points))
+    for i in range(0, len(points), 20000):
+        rows = near[i : i + 20000]
+        pts = np.repeat(points[i : i + 20000], rows.shape[1], axis=0)
+        closest = trimesh.triangles.closest_point(triangles[rows.ravel()], pts)
+        out[i : i + 20000] = np.linalg.norm(closest - pts, axis=1).reshape(rows.shape).min(axis=1)
+    return out
+
+
+def _stitched(a: trimesh.Trimesh, b: trimesh.Trimesh) -> trimesh.Trimesh:
+    """The two scans as one mesh, with each stretch of b's rim that runs along a's rim joined
+    to it by a strip of triangles. Without the strip they are separate pieces: the region
+    growing stops at the seam, and a small piece (the bottom of a turned part) is dropped as
+    loose."""
+    verts = np.concatenate([a.vertices, b.vertices])
+    off = len(a.vertices)
+    loops_a = [loop for loop in _rim_loops(a) if len(loop) >= STITCH_MIN_POINTS]
+    if not loops_a:
+        return trimesh.util.concatenate([a, b])
+    rim_a = np.concatenate(loops_a)
+    which = np.concatenate([np.full(len(loop), k) for k, loop in enumerate(loops_a)])
+    where = np.concatenate([np.arange(len(loop)) for loop in loops_a])
+    tree = cKDTree(a.vertices[rim_a])
+    strips = []
+    for loop in _rim_loops(b):
+        d, j = tree.query(b.vertices[loop])
+        for run in _runs(d < STITCH_MM):
+            q = loop[run]
+            ka = np.bincount(which[j[run]]).argmax()
+            if (which[j[run]] != ka).any():
+                continue
+            la = loops_a[ka]
+            n = len(la)
+            # Where along a's rim each point lands, unwrapped round the loop. Across the seam
+            # the two rims run opposite ways (both scans face outwards), so walking b's run
+            # walks a's rim backwards.
+            u = where[j[run]].astype(float)
+            u = u[0] + np.concatenate([[0.0], np.cumsum((np.diff(u) + n / 2) % n - n / 2)])
+            back = int(round(u[0] - u[-1]))
+            if back < 1:
+                continue
+            if len(run) == len(loop) and back >= n - 3:  # the whole rim, round the whole loop
+                back, q = n, np.r_[q, q[0]]
+            p = la[(int(u[0]) - np.arange(back + 1)) % n]
+            la_len = np.linalg.norm(np.diff(a.vertices[p], axis=0), axis=1).sum()
+            lb_len = np.linalg.norm(np.diff(b.vertices[q], axis=0), axis=1).sum()
+            if max(la_len, lb_len) > STITCH_LENGTH_RATIO * max(min(la_len, lb_len), 1e-9):
+                continue
+            strips.append(_zip(verts, p, q + off))
+    faces = np.concatenate([a.faces, b.faces + off, *strips]) if strips else None
+    if faces is None:
+        return trimesh.util.concatenate([a, b])
+    return trimesh.Trimesh(verts, faces, process=False)
+
+
+def _rim_loops(mesh: trimesh.Trimesh) -> list[np.ndarray]:
+    """The mesh's open rims as closed loops of vertices, each in the direction its faces run
+    along it. Rims that touch themselves (a vertex on two rim edges out) are cut there."""
+    edges = mesh.edges[trimesh.grouping.group_rows(mesh.edges_sorted, require_count=1)]
+    if not len(edges):
+        return []
+    nxt: dict[int, int] = {}
+    for u, v in edges:
+        nxt.setdefault(int(u), int(v))
+    loops, seen = [], set()
+    for start in nxt:
+        if start in seen:
+            continue
+        loop, u = [], start
+        while u in nxt and u not in seen:
+            seen.add(u)
+            loop.append(u)
+            u = nxt[u]
+        if u == start and len(loop) >= 3:
+            loops.append(np.array(loop))
+    return loops
+
+
+def _runs(near: np.ndarray) -> list[np.ndarray]:
+    """The stretches of a closed loop where near holds, as index arrays in loop order."""
+    n = len(near)
+    if near.all():
+        return [np.arange(n)]
+    if not near.any():
+        return []
+    start = int(np.flatnonzero(~near)[0]) + 1
+    order = (start + np.arange(n)) % n
+    runs, cur = [], []
+    for i in order:
+        if near[i]:
+            cur.append(i)
+        elif cur:
+            runs.append(np.array(cur))
+            cur = []
+    if cur:
+        runs.append(np.array(cur))
+    return [r for r in runs if len(r) >= STITCH_MIN_POINTS]
+
+
+def _zip(verts: np.ndarray, p: np.ndarray, q: np.ndarray) -> np.ndarray:
+    """Triangles joining two facing rim stretches, starting at the same end: q runs the way its
+    faces run along it, p the opposite way (so p's own rim edges are p[k + 1] to p[k]). Each
+    step takes the shorter of the two diagonals."""
+    out = []
+    i = k = 0
+    while i < len(q) - 1 or k < len(p) - 1:
+        step_q = k == len(p) - 1 or (
+            i < len(q) - 1
+            and np.linalg.norm(verts[q[i + 1]] - verts[p[k]])
+            <= np.linalg.norm(verts[p[k + 1]] - verts[q[i]])
+        )
+        if step_q:
+            out.append((q[i + 1], q[i], p[k]))
+            i += 1
+        else:
+            out.append((p[k], p[k + 1], q[i]))
+            k += 1
+    return np.array(out, dtype=np.int64).reshape(-1, 3)
+
+
+def _part(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """The scan without its specks: every piece at least PIECE_SHARE of the biggest. One side
+    of a part can come out in more than one piece (a turned part seen from below: its base,
+    and the underside of a step), and each is needed."""
     labels = trimesh.graph.connected_component_labels(mesh.face_adjacency, len(mesh.faces))
     areas = np.bincount(labels, weights=mesh.area_faces)
     out = mesh.copy()
-    out.update_faces(labels == int(np.argmax(areas)))
+    out.update_faces(areas[labels] >= PIECE_SHARE * areas.max())
     out.remove_unreferenced_vertices()
     return out
 

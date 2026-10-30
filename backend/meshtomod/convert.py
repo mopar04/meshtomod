@@ -36,6 +36,10 @@ __all__ = ["ConversionResult", "ThickenOptions", "UnsupportedGeometry", "convert
 
 MIN_FEATURE_TOLS = 5.0
 LOOSE_PIECE_SHARE = 0.1
+# A flat face left beside a whole turned part is that part's own end (see _on_turned_part) when
+# this share of it lies within this many tolerances of the turned surface.
+ON_TURNED_SHARE = 0.9
+ON_TURNED_TOLS = 2.0
 # Below this share of the scan within the working tolerance, the model is only part of the
 # part: it is still returned, marked partial, so the deviation map shows where it misses.
 MIN_PLAUSIBLE_FIT_PCT = 90.0
@@ -297,6 +301,7 @@ def convert(
         return None
 
     body = max((f for f in features if f.kind == "body"), key=lambda f: f.radius, default=None)
+    base_planes = [r for r in base_planes if not _on_turned_part(work, r, revolved, working)]
     turned = [r.add for r in revolved if r.kind == "turned"]
     adds = [(r.kind, r.add) for r in revolved if r.add is not None and r.kind != "turned"]
     cuts = [(r.kind, r.cut) for r in revolved if r.cut is not None]
@@ -481,6 +486,21 @@ def take_revolved(
     for k, r in enumerate(revolved):
         labels[r.faces] = top + 1 + k
     return revolved, features, planes, patches, labels
+
+
+def _on_turned_part(
+    work: Geo, plane: Region, revolved: list[Revolved], level: ToleranceLevel
+) -> bool:
+    """A flat face that a whole turned part already makes: its end, when the scan of that end
+    came apart from the rest (a merged bottom scan) or the ends were closed a little off it."""
+    centres = work.vertices[work.faces[plane.faces]].mean(axis=1)
+    area = work.area_faces[plane.faces]
+    for r in revolved:
+        if r.kind == "turned":
+            on = r.on_surface(centres, ON_TURNED_TOLS * level.fit_tolerance_mm)
+            if area[on].sum() >= ON_TURNED_SHARE * area.sum():
+                return True
+    return False
 
 
 def take_freeform(
