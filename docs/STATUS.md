@@ -149,7 +149,11 @@ _Last updated: 2026-10-31 (thin-walled covers as shells, PR #26)_
     scan skinned the holes over, so they get the M3 pilot size and a note says so). 98.3% of
     the scan within 1 mm, 84% within 0.5 mm. Still wrong: the top grille comes out closed,
     the curved nose is faceted, free edges are jagged, the inner ledge reads 0.5 to 1 mm off.
-    Functional and Precise reruns on the shell path: in progress.
+    Functional (90 s): one valid solid, 54 panels, 15 openings, same posts and holes; 98.7%
+    within 1 mm, 86.5% within 0.5, 70% within 0.3, so it is returned as partial with the
+    deviation map. Precise (133 s): one valid solid, 98.9% within 1 mm, 76% within 0.3, 34%
+    within 0.1 (partial); posts read 5.7 mm there. Before this change every level was
+    refused. Verdict: close enough to print and try as a replacement, not yet proven.
 
 ## Handoff (2026-10-30): Duet M3 thread to the mesh-to-mod channel
 MeshToMod work moves to Zac's mesh-to-mod Duet channel (Zac: the conversation "needs to ...
