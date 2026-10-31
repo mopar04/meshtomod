@@ -523,11 +523,13 @@ def unscanned_base(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     return out
 
 
-def cover_cad(standoffs: bool = True):
+def cover_cad(standoffs: bool = True, grille: bool = False):
     """A moulded cover like the Max4 toolhead cover: 80 x 50 x 30, walls 1.8 mm, open
     underneath, three 30 x 3 vent slots in the top, a 20 mm wide, 12 mm deep U notch in one
     end, and two 6 mm standoffs 15 mm long hanging from the top with 2.5 mm screw holes in
-    their ends, 12 mm deep."""
+    their ends, 12 mm deep. With grille, five more slots in the top, 20 x 1.6 on a 3.2 mm
+    pitch beside the vents, as the scanner sees narrow slots: open from outside, but with
+    the inside of the wall across them (a 0.1 mm skin)."""
     import cadquery as cq
 
     wall = 1.8
@@ -540,6 +542,14 @@ def cover_cad(standoffs: bool = True):
     )
     notch = cq.Workplane("YZ", origin=(40, 0, -15)).center(0, 6).rect(20, 12).extrude(-5, both=True)
     part = shell.cut(slots).cut(notch)
+    if grille:
+        bars = (
+            cq.Workplane("XY", origin=(0, 0, 15))
+            .pushPoints([(-20, 3.2 * k) for k in range(-2, 3)])
+            .slot2D(20, 1.6)
+            .extrude(-(wall - 0.1))
+        )
+        part = part.cut(bars)
     if standoffs:
         top = 15 - wall
         for y in (-15, 15):
@@ -549,12 +559,12 @@ def cover_cad(standoffs: bool = True):
     return part
 
 
-def cover() -> trimesh.Trimesh:
+def cover(grille: bool = False) -> trimesh.Trimesh:
     """The cover as a scanner sees it: no hole in the ends of the standoffs (a scanner can't
     see down a narrow bore and skins it over), and densely triangulated."""
     import cadquery as cq
 
-    part = cover_cad().val()
+    part = cover_cad(grille=grille).val()
     # Skin the screw holes over with a slight dome, the way scans of the Max4 cover show them.
     for y in (-15, 15):
         dome = cq.Solid.makeSphere(1.6, cq.Vector(-30, y, 13.2 - 15 + 1.6 - 0.6), angleDegrees1=-90)

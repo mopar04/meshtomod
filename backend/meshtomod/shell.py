@@ -95,6 +95,29 @@ HOLE_FACING = 0.8
 # Surface across a hole counts from this far proud of the panel, looked for in steps of this.
 HOLE_PROUD_MM = 1.0
 HOLE_DEPTH_STEP_MM = 0.2
+# A hole in a panel's outside is an opening (a vent, a slot) when the scan has wall going
+# down from most of its rim, even where the scanner saw the inside of the wall across it, as
+# it does across narrow slots. Its rim is checked at points this far apart, this far into the
+# hole, for wall square to the panel within this, at two of these depths (shares of the wall's
+# thickness); at least this share of the rim must have it. Surface facing out across more
+# than this share of the hole, above the inside of the wall, is a floor (a debossed logo, a
+# groove): then it isn't cut through.
+OPEN_RIM_STEP_MM = 0.5
+OPEN_RIM_IN_MM = 0.3
+OPEN_WALL_MM = 0.5
+OPEN_DEPTHS = (0.3, 0.55, 0.8)
+OPEN_RIM_SHARE = 0.5
+OPEN_FLOOR_SHARE = 0.5
+# Openings much longer than they are wide are slots: straight sides and round ends, as they
+# are drawn. Slots side by side (a grille) are told apart across their common direction, in
+# bins this wide, where the count dips below this share of the slots on either side; a slot
+# is kept when the opening covers this share of it.
+SLOT_ASPECT = 2.5
+SLOT_ANGLE_DEG = 8.0
+SLOT_BIN_MM = 0.1
+SLOT_DIP = 0.5
+SLOT_COVER = 0.6
+SLOT_GAP_MM = 1.0
 # Regions within this angle and a tolerance of the same plane are one panel.
 PARALLEL_DEG = 3.0
 # Regions under this area lying within this many tolerances of a bigger neighbour's plane
@@ -110,6 +133,25 @@ BACK_GROW_MM = 0.05
 # A stretch of free edge shorter than this between two stretches against the same panel is a
 # gap in the scan, not an edge.
 GAP_BRIDGE_MM = 3.0
+# Rounded folds (the curved nose of a cover). Two panels at least this big, folded by between
+# these angles, are joined by a curve where the outside between them turns smoothly from one
+# to the other: faces with normals within this of the plane square to the fold, more than
+# this angle from either panel, within this far of the fold, covering this share of the turn
+# in bins this wide. The curve is fitted within the tolerance, swallows the facets that
+# segmenting cut it into (at least one of them), and gets this many points.
+BEND_MIN_MM2 = 400.0
+BEND_FOLD_DEG = (30.0, 150.0)
+BEND_AXIS_DEG = 15.0
+BEND_EDGE_DEG = 6.0
+BEND_REACH_MM = 40.0
+BEND_COVER = 0.7
+BEND_BIN_DEG = 3.0
+BEND_TERMS = 5
+BEND_FACET_SHARE = 0.6
+BEND_POINTS = 48
+BEND_KEPT_SHARE = 0.8
+# Panels running into a rounded fold get material up to its curve, this deep inside it.
+BEND_FILL_MM = 4.0
 # Panels meeting at less than this angle are not intersected (the line would run far off).
 MIN_FOLD_DEG = 12.0
 # Standoffs. Scan left unexplained by the walls is what lies further than this many fit
@@ -157,6 +199,51 @@ class Panel:
     outline: np.ndarray
     """Outer loop in 3D, on the panel's outside plane."""
     holes: list[np.ndarray] = field(default_factory=list)
+    slots: list[Slot] = field(default_factory=list)
+
+    def cutouts(self) -> list[np.ndarray]:
+        """Every opening as a loop of 3D points (slots with their round ends faceted)."""
+        return self.holes + [s.points() for s in self.slots]
+
+
+@dataclass
+class Slot:
+    """A slot through a panel: straight sides and round ends, on the panel's outside plane."""
+
+    centre: np.ndarray
+    axis: np.ndarray
+    """Unit vector along the slot."""
+    across: np.ndarray
+    length: float
+    """End to end, round ends included."""
+    width: float
+
+    def ends(self) -> tuple[np.ndarray, np.ndarray]:
+        half = (self.length - self.width) / 2
+        return self.centre - half * self.axis, self.centre + half * self.axis
+
+    def points(self, per_end: int = 16) -> np.ndarray:
+        a, b = self.ends()
+        r = self.width / 2
+        turn = np.linspace(-np.pi / 2, np.pi / 2, per_end + 1)
+        far = [b + r * (np.cos(t) * self.axis + np.sin(t) * self.across) for t in turn]
+        near = [a - r * (np.cos(t) * self.axis + np.sin(t) * self.across) for t in turn]
+        return np.array(far + near)
+
+    def wire(self) -> cq.Wire:
+        a, b = self.ends()
+        r = self.width / 2
+        v = lambda p: cq.Vector(*p)  # noqa: E731
+        p1, p2 = a - r * self.across, b - r * self.across
+        p3, p4 = b + r * self.across, a + r * self.across
+        return cq.Wire.assembleEdges(
+            [
+                cq.Edge.makeLine(v(p1), v(p2)),
+                cq.Edge.makeThreePointArc(v(p2), v(b + r * self.axis), v(p3)),
+                cq.Edge.makeLine(v(p3), v(p4)),
+                cq.Edge.makeThreePointArc(v(p4), v(a - r * self.axis), v(p1)),
+            ]
+        )
 
 
 @dataclass
@@ -165,6 +252,8 @@ class ShellInfo:
     panels: int
     vents: int
     """Openings cut through panels (slots, windows)."""
+    slots: int = 0
+    """Of those, the ones fitted as slots."""
 
     def as_dict(self) -> dict:
         return {
@@ -172,6 +261,7 @@ class ShellInfo:
             "thickness_mm": self.thickness_mm,
             "panels": self.panels,
             "openings": self.vents,
+            "slots": self.slots,
         }
 
 
@@ -208,12 +298,17 @@ def build_shell(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ShellBuild | No
     skin, _ = outer_skin(work, found)
     regions = panel_regions(skin, level, t)
     tol = max(level.fit_tolerance_mm, MIN_PANEL_TOL_MM)
-    panels = panel_outlines(skin, regions, t, tol, work, found.inner)
+    bends = find_bends(skin, regions, t, tol)
+    gone = {i for b in bends for i in b.facets}
+    regions = [r for r in regions if r.id not in gone]
+    fills = bend_fills(bends, regions)
+    panels = panel_outlines(skin, regions, t, tol, work, found.inner, fills)
     solids = [s for s in (panel_solid(p, t) for p in panels) if s is not None]
     if not solids:
         return None
     try:
         walls = fuse_panels(solids, tol)
+        walls = round_folds(walls, bends, t)
     except Exception:  # OpenCASCADE gives up on the fuse in several ways
         return None
     # Specks of panel standing apart from the walls (the end of a post, flat enough to read
@@ -234,7 +329,12 @@ def build_shell(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ShellBuild | No
     if len(solids) < len(panels):
         n = len(panels) - len(solids)
         notes.append(LEFT_OUT_NOTE.format(n, "s" if n > 1 else "", "were" if n > 1 else "was"))
-    info = ShellInfo(t, len(panels), sum(len(p.holes) for p in panels))
+    info = ShellInfo(
+        t,
+        len(panels),
+        sum(len(p.cutouts()) for p in panels),
+        sum(len(p.slots) for p in panels),
+    )
     return ShellBuild(walls, post_features(posts, level.fit_tolerance_mm), info, notes)
 
 
@@ -450,6 +550,7 @@ def panel_outlines(
     tol: float,
     scan: Geo,
     inner: np.ndarray,
+    fills: dict[int, list[np.ndarray]] | None = None,
 ) -> list[Panel]:
     """Each region's outline: along its neighbours' planes where it meets them, along the
     scan's edge elsewhere. The panel's material is where either side of its wall was
@@ -476,15 +577,296 @@ def panel_outlines(
             if poly is not None and len(poly) >= 3:
                 built.append(poly)
         backs = _inside_footprint(scan, inner, centres, r.plane, frame, thickness)
-        for shape in _clean_outline(built, tol, backs):
-            outer = np.asarray(shape.exterior.coords)[:-1]
+        voids = _openings(skin, r, frame, thickness, scan, centres, tree)
+        slots, others = _slots(voids, tol)
+        shapes = _clean_outline(built, tol, backs)
+        extra = [shapely.Polygon(frame.to2d(f)) for f in (fills or {}).get(r.id, [])]
+        if shapes and extra:
+            shapes = _grow(shapes, extra)
+        for shape in shapes:
             holes = [
-                np.asarray(h.coords)[:-1]
+                shapely.Polygon(h)
                 for h in shape.interiors
                 if not _wall_across(shapely.Polygon(h), frame, thickness, tree, scan.face_normals)
             ]
-            panels.append(Panel(r, frame.to3d(outer), [frame.to3d(h) for h in holes]))
+            panels.append(_cut(r, frame, shape, holes, slots, others, tol))
     return panels
+
+
+def _cut(
+    r: Region,
+    frame: _Frame,
+    shape: shapely.Polygon,
+    holes: list[shapely.Polygon],
+    slots: list[tuple[np.ndarray, np.ndarray, float, float]],
+    others: list[shapely.Polygon],
+    tol: float,
+) -> Panel:
+    """The panel with its openings: the slots and other openings found from their sides,
+    and the holes in its outline that none of those replace. Only what lies within the
+    outline is cut (an opening at the edge is already in the outline)."""
+    room = shapely.Polygon(shape.exterior).buffer(-SMOOTH_MM)
+    kept_slots, taken = [], []
+    for centre, axis, length, width in slots:
+        poly = _slot_polygon(centre, axis, length, width)
+        if room.contains(poly):
+            kept_slots.append((centre, axis, length, width))
+            taken.append(poly)
+    taken_all = shapely.union_all(taken) if taken else shapely.Polygon()
+    rest = shapely.union_all([*holes, *others]) if holes or others else shapely.Polygon()
+    rest = rest.difference(taken_all.buffer(SMOOTH_MM)).intersection(room)
+    # Slivers left beside a slot are the scan's ragged edge, not openings.
+    mitre = {"join_style": "mitre", "mitre_limit": 4.0}
+    rest = rest.buffer(-SMOOTH_MM, **mitre).buffer(SMOOTH_MM, **mitre)
+    loops = []
+    for part in shapely.get_parts(rest.simplify(SIMPLIFY_SHARE * tol)):
+        if part.geom_type == "Polygon" and part.is_valid and part.area >= PINHOLE_MM2:
+            loops.append(frame.to3d(np.asarray(part.exterior.coords)[:-1]))
+    outer = frame.to3d(np.asarray(shape.exterior.coords)[:-1])
+    made = []
+    for centre, axis, length, width in kept_slots:
+        a3 = frame.u * axis[0] + frame.v * axis[1]
+        made.append(
+            Slot(
+                frame.to3d(centre[None])[0],
+                a3,
+                np.cross(frame.n, a3),
+                round(float(length), 2),
+                round(float(width), 2),
+            )
+        )
+    return Panel(r, outer, loops, made)
+
+
+def _openings(
+    skin: Geo,
+    r: Region,
+    frame: _Frame,
+    thickness: float,
+    scan: Geo,
+    centres: np.ndarray,
+    tree: cKDTree,
+) -> list[shapely.Polygon]:
+    """Holes in the panel's outside that go through it (see OPEN_*), each as the gap
+    between the scanned outside around it, in the panel's 2D frame."""
+    normals = scan.face_normals
+    d = r.plane.distance(centres)
+    facing = normals @ r.plane.normal
+    outside = np.flatnonzero((facing > HOLE_FACING) & (d > -thickness / 2) & (d < HOLE_PROUD_MM))
+    flat = frame.to2d(centres[outside])
+    voids = []
+    # The holes in what of the outside the panel covers (taken from its triangles, not from
+    # walking its edge, which loses a loop where two holes touch at a corner).
+    tris = frame.to2d(skin.vertices[skin.faces[r.faces]].reshape(-1, 3)).reshape(-1, 3, 2)
+    polys = shapely.polygons(np.concatenate([tris, tris[:, :1]], axis=1))
+    polys = polys[shapely.area(polys) > 1e-9]
+    cover = shapely.union_all(shapely.buffer(polys, BACK_GROW_MM, join_style="mitre"))
+    rings = [h for g in shapely.get_parts(cover) if g.geom_type == "Polygon" for h in g.interiors]
+    for ring in rings:
+        hole = shapely.geometry.polygon.orient(shapely.Polygon(ring))
+        if hole.area < PINHOLE_MM2 or not hole.is_valid:
+            continue
+        if _rim_walled(hole, frame, thickness, tree, normals) < OPEN_RIM_SHARE:
+            continue
+        if _floor_across(hole, frame, thickness, tree, normals) > OPEN_FLOOR_SHARE:
+            continue
+        # The opening is what the scanned outside leaves of it: the loop runs round bits of
+        # outside that belong to no panel (the tops of a grille's bars, a little low).
+        near = outside[shapely.contains_xy(hole.buffer(1.0), flat[:, 0], flat[:, 1])]
+        void = hole.buffer(OPEN_RIM_IN_MM)
+        if len(near):
+            tris = frame.to2d(scan.vertices[scan.faces[near]].reshape(-1, 3)).reshape(-1, 3, 2)
+            polys = shapely.polygons(np.concatenate([tris, tris[:, :1]], axis=1))
+            polys = polys[shapely.area(polys) > 1e-9]
+            seen = shapely.union_all(shapely.buffer(polys, BACK_GROW_MM, join_style="mitre"))
+            void = void.difference(seen)
+        mitre = {"join_style": "mitre", "mitre_limit": 4.0}
+        void = void.buffer(-OPEN_RIM_IN_MM, **mitre).buffer(OPEN_RIM_IN_MM, **mitre)
+        voids += [
+            g for g in shapely.get_parts(void) if g.geom_type == "Polygon" and g.area >= PINHOLE_MM2
+        ]
+    return voids
+
+
+def _rim_walled(
+    hole: shapely.Polygon, frame: _Frame, thickness: float, tree: cKDTree, normals: np.ndarray
+) -> float:
+    """The share of the hole's rim with wall going down from it, square to the panel."""
+    ring = hole.exterior
+    n = max(int(ring.length / OPEN_RIM_STEP_MM), 8)
+    at = shapely.line_interpolate_point(ring, np.arange(n + 1) / n, normalized=True)
+    pts = shapely.get_coordinates(at)
+    tangent = pts[1:] - pts[:-1]
+    tangent /= np.maximum(np.linalg.norm(tangent, axis=1, keepdims=True), 1e-9)
+    # The ring runs anticlockwise round the hole, so the hole is on its left.
+    probe = (pts[:-1] + pts[1:]) / 2 + OPEN_RIM_IN_MM * np.c_[-tangent[:, 1], tangent[:, 0]]
+    inside = shapely.contains_xy(hole, probe[:, 0], probe[:, 1])
+    hits = np.zeros(n, int)
+    for share in OPEN_DEPTHS:
+        p3 = frame.to3d(probe) - share * thickness * frame.n
+        for k, idx in enumerate(tree.query_ball_point(p3, OPEN_WALL_MM)):
+            if idx and (np.abs(normals[idx] @ frame.n) < 0.5).any():
+                hits[k] += 1
+    return float(((hits >= 2) & inside).sum() / n)
+
+
+def _floor_across(
+    hole: shapely.Polygon, frame: _Frame, thickness: float, tree: cKDTree, normals: np.ndarray
+) -> float:
+    """The share of the hole with surface facing out across it, from a little proud of the
+    panel down to the inside of the wall (not including it)."""
+    inner = hole.buffer(-OPEN_RIM_IN_MM)
+    if inner.is_empty:
+        inner = hole
+    x0, y0, x1, y1 = inner.bounds
+    step = max(np.sqrt(inner.area / HOLE_SAMPLES), 0.25)
+    gx, gy = np.meshgrid(np.arange(x0, x1 + step, step), np.arange(y0, y1 + step, step))
+    pts = np.c_[gx.ravel(), gy.ravel()]
+    pts = pts[shapely.contains_xy(inner, pts[:, 0], pts[:, 1])]
+    if not len(pts):
+        return 0.0
+    p3 = frame.to3d(pts)
+    near = np.zeros(len(pts), bool)
+    for depth in np.arange(HOLE_PROUD_MM, -(thickness - BACK_BAND_MM), -HOLE_DEPTH_STEP_MM):
+        dist, i = tree.query(p3 + depth * frame.n)
+        near |= (dist <= HOLE_WALL_MM) & (normals[i] @ frame.n > HOLE_FACING)
+    return float(near.mean())
+
+
+def _slot_polygon(centre: np.ndarray, axis: np.ndarray, length: float, width: float):
+    half = (length - width) / 2
+    line = shapely.LineString([centre - half * axis, centre + half * axis])
+    return line.buffer(width / 2, quad_segs=8)
+
+
+def _slots(voids: list[shapely.Polygon], tol: float):
+    """The openings that are slots, as (centre, axis, length, width) in 2D, and the rest.
+    Slots side by side are found together: across their common direction the openings
+    come in bands, one per slot, even where the scan lost a bar between two of them."""
+    long = []
+    for g in voids:
+        axis, length, width = _long_axis(g)
+        if length >= SLOT_ASPECT * width:
+            long.append((g, axis))
+    slots, used = [], []
+    while long:
+        g0, a0 = max(long, key=lambda x: x[0].area)
+        group = [(g, a) for g, a in long if abs(a @ a0) > np.cos(np.radians(SLOT_ANGLE_DEG))]
+        long = [x for x in long if not any(x[0] is g for g, _ in group)]
+        found = [s for run in _side_by_side(group, a0) for s in _bands(run, a0)]
+        slots += found
+        used += [
+            g
+            for g, _ in group
+            if any(_slot_polygon(*s).intersection(g).area > 0.5 * g.area for s in found)
+        ]
+    others = [g for g in voids if not any(g is u for u in used)]
+    return slots, others
+
+
+def _side_by_side(group: list[tuple[shapely.Polygon, np.ndarray]], axis: np.ndarray):
+    """The openings in rows that overlap along axis, each row as one shape. Rows apart
+    along it (a short grille beside long vents) are measured apart, so one row's widths
+    don't set the other's."""
+    spans = []
+    for g, _ in group:
+        s = shapely.get_coordinates(g.exterior) @ axis
+        spans.append((s.min(), s.max(), g))
+    spans.sort(key=lambda x: x[0])
+    rows, end = [], -np.inf
+    for a, b, g in spans:
+        if a > end:
+            rows.append([])
+        rows[-1].append(g)
+        end = max(end, b) if a <= end else b
+    return [shapely.union_all(row) for row in rows]
+
+
+def _long_axis(g: shapely.Polygon) -> tuple[np.ndarray, float, float]:
+    """Direction along the shape's longest extent, that extent, and its width as a slot of
+    the same length and area."""
+    q = np.asarray(g.minimum_rotated_rectangle.exterior.coords)[:4]
+    e1, e2 = q[1] - q[0], q[2] - q[1]
+    if np.linalg.norm(e1) < np.linalg.norm(e2):
+        e1 = e2
+    length = float(np.linalg.norm(e1))
+    return e1 / max(length, 1e-9), length, _slot_width(length, g.area)
+
+
+def _slot_width(length: float, area: float) -> float:
+    """The width of a slot (round ends) of this length and area."""
+    k = 1 - np.pi / 4
+    disc = length * length - 4 * k * area
+    if disc < 0:
+        return length
+    return float((length - np.sqrt(disc)) / (2 * k))
+
+
+def _bands(shape: shapely.Geometry, axis: np.ndarray):
+    """Slots in the shape, all running along axis: one per band across it."""
+    across = np.array([-axis[1], axis[0]])
+    x0, y0, x1, y1 = shape.bounds
+    step = SLOT_BIN_MM
+    gx, gy = np.meshgrid(np.arange(x0, x1, step), np.arange(y0, y1, step))
+    pts = np.c_[gx.ravel(), gy.ravel()]
+    pts = pts[shapely.contains_xy(shape, pts[:, 0], pts[:, 1])]
+    if len(pts) < 10:
+        return []
+    s, w = pts @ axis, pts @ across
+    lo = w.min()
+    count = np.bincount(((w - lo) / step).astype(int)).astype(float)
+    count = np.convolve(count, np.ones(3) / 3, mode="same")
+    out = []
+    for b0, b1 in _split_bands(count):
+        band = count[b0:b1]
+        top = band >= 0.5 * band.max()
+        width = top.sum() * step
+        bins = np.arange(b0, b1)[top]
+        mid = lo + (np.average(bins, weights=band[top]) + 0.5) * step
+        inside = np.abs(w - mid) <= width / 2
+        along = np.sort(s[inside])
+        if len(along) < 2:
+            continue
+        # Bands that run on past a break along the slot are slots end to end.
+        cuts = np.flatnonzero(np.diff(along) > SLOT_GAP_MM) + 1
+        for run in np.split(along, cuts):
+            if len(run) < 2:
+                continue
+            a, b = np.percentile(run, [1, 99])
+            length = b - a + step
+            if length < SLOT_ASPECT * width:
+                continue
+            centre = ((a + b) / 2) * axis + mid * across
+            poly = _slot_polygon(centre, axis, length, width)
+            if poly.intersection(shape).area >= SLOT_COVER * poly.area:
+                out.append((centre, axis, float(length), float(width)))
+    return out
+
+
+def _split_bands(count: np.ndarray) -> list[tuple[int, int]]:
+    """Runs of bins with openings in them, split where the count dips well below the peaks
+    on both sides (a bar between two slots)."""
+    runs, start = [], None
+    for i, c in enumerate(np.r_[count, 0.0]):
+        if c > 0 and start is None:
+            start = i
+        elif c <= 0 and start is not None:
+            runs.append((start, i))
+            start = None
+    out = []
+    while runs:
+        b0, b1 = runs.pop()
+        seg = count[b0:b1]
+        best = None
+        for i in range(1, len(seg) - 1):
+            left, right = seg[:i].max(), seg[i + 1 :].max()
+            if seg[i] < SLOT_DIP * min(left, right) and (best is None or seg[i] < seg[best]):
+                best = i
+        if best is None:
+            out.append((b0, b1))
+        else:
+            runs += [(b0, b0 + best), (b0 + best + 1, b1)]
+    return sorted(out)
 
 
 def _wall_across(
@@ -933,7 +1315,7 @@ def _post(
         hit = frame.to2d((centre + outside * axis)[None])[0]
         inside = outside + thickness
         gap = abs(float(t[sides].min()) - inside)
-        footprint = shapely.Polygon(frame.to2d(p.outline), [frame.to2d(h) for h in p.holes])
+        footprint = shapely.Polygon(frame.to2d(p.outline), [frame.to2d(h) for h in p.cutouts()])
         if (
             footprint.distance(shapely.Point(hit)) <= radius
             and gap <= thickness + _far_mm(tol)
@@ -1038,6 +1420,257 @@ def post_features(posts: list[Post], tol: float) -> list[Feature]:
 
 
 # ---------------------------------------------------------------------------------------------
+# Rounded folds
+# ---------------------------------------------------------------------------------------------
+
+
+@dataclass
+class Bend:
+    """A rounded fold between two panels (the curved nose of a cover): across the fold the
+    outside follows one curve all along it. The curve is held as its support function: how
+    far the tangent line facing each way between the two panels lies from the fold's corner,
+    which keeps it smooth, convex and tangent to both panels."""
+
+    a: Region
+    b: Region
+    corner: np.ndarray
+    """A point on the line where the two panels' planes meet."""
+    axis: np.ndarray
+    """Along the fold."""
+    across: np.ndarray
+    """Square to the axis and to panel a's normal, turning towards panel b's."""
+    turn: float
+    """The angle between the two panels' normals (radians)."""
+    terms: np.ndarray
+    span: tuple[float, float]
+    """From and to, along the axis."""
+    facets: set[int] = field(default_factory=set)
+    rms_mm: float = 0.0
+
+    def normal(self, phi: np.ndarray) -> np.ndarray:
+        return np.outer(np.cos(phi), self.a.plane.normal) + np.outer(np.sin(phi), self.across)
+
+    def support(self, phi: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """The tangent line's distance from the corner facing each way, and its rate of
+        change with the angle."""
+        u = phi / self.turn
+        poly = np.polynomial.polynomial
+        p, dp = poly.polyval(u, self.terms), poly.polyval(u, poly.polyder(self.terms))
+        h = u * (1 - u) * p
+        dh = ((1 - 2 * u) * p + u * (1 - u) * dp) / self.turn
+        return h, dh
+
+    def outline(self, inset: float = 0.0, n: int = BEND_POINTS) -> np.ndarray:
+        """The curve across the fold (moved in by inset), at the start of its span."""
+        phi = np.linspace(0.0, self.turn, n)
+        h, dh = self.support(phi)
+        nrm = self.normal(phi)
+        tan = np.outer(-np.sin(phi), self.a.plane.normal) + np.outer(np.cos(phi), self.across)
+        pts = self.corner + (h - inset)[:, None] * nrm + dh[:, None] * tan
+        return pts + (self.span[0] - self.corner @ self.axis) * self.axis
+
+    def length(self) -> float:
+        return self.span[1] - self.span[0]
+
+
+def find_bends(skin: Geo, regions: list[Region], thickness: float, tol: float) -> list[Bend]:
+    """Rounded folds between big panels, each fitted to the outside between them."""
+    big = [r for r in regions if r.area >= BEND_MIN_MM2]
+    centres = skin.vertices[skin.faces].mean(axis=1)
+    normals = skin.face_normals
+    labels = face_labels(regions, len(skin.faces))
+    lo_cos, hi_cos = (np.cos(np.radians(d)) for d in BEND_FOLD_DEG)
+    bends: list[Bend] = []
+    for i, a in enumerate(big):
+        for b in big[i + 1 :]:
+            c = a.plane.normal @ b.plane.normal
+            if not hi_cos < c < lo_cos:
+                continue
+            bend = _fit_bend(skin, centres, normals, labels, regions, a, b, thickness, tol)
+            if bend is not None and not any(bend.facets & o.facets for o in bends):
+                bends.append(bend)
+    return bends
+
+
+def _fit_bend(skin, centres, normals, labels, regions, a, b, thickness, tol) -> Bend | None:
+    na, nb = a.plane.normal, b.plane.normal
+    axis = np.cross(na, nb)
+    axis /= np.linalg.norm(axis)
+    across = np.cross(axis, na)
+    if across @ nb < 0:
+        across = -across
+    turn = float(np.arccos(np.clip(na @ nb, -1, 1)))
+    # A point on both planes: the corner of the fold.
+    m = np.array([na, nb, axis])
+    corner = np.linalg.solve(m, [a.plane.offset, b.plane.offset, 0.0])
+    # Only an outside corner: each panel lies behind the other's plane.
+    if (
+        np.median(b.plane.distance(centres[a.faces])) > tol
+        or np.median(a.plane.distance(centres[b.faces])) > tol
+    ):
+        return None
+    rel = centres - corner
+    phi = np.arctan2(normals @ across, normals @ na)
+    edge = np.radians(BEND_EDGE_DEG)
+    near = np.linalg.norm(rel - np.outer(rel @ axis, axis), axis=1) <= BEND_REACH_MM
+    sel = (
+        (np.abs(normals @ axis) < np.sin(np.radians(BEND_AXIS_DEG)))
+        & (phi > edge)
+        & (phi < turn - edge)
+        & near
+        & (labels != a.id)
+        & (labels != b.id)
+    )
+    # Along the fold, only where both panels are.
+    ta, tb = centres[a.faces] @ axis, centres[b.faces] @ axis
+    lo, hi = max(ta.min(), tb.min()), min(ta.max(), tb.max())
+    sel &= (centres @ axis >= lo) & (centres @ axis <= hi)
+    idx = np.flatnonzero(sel)
+    if len(idx) < 20:
+        return None
+    bins = np.floor(phi[idx] / np.radians(BEND_BIN_DEG)).astype(int)
+    edges_n = int(np.ceil((turn - 2 * edge) / np.radians(BEND_BIN_DEG)))
+    if len(np.unique(bins)) < BEND_COVER * edges_n:
+        return None
+    n_hat = np.outer(np.cos(phi[idx]), na) + np.outer(np.sin(phi[idx]), across)
+    h = (rel[idx] * n_hat).sum(axis=1)
+    u = phi[idx] / turn
+    w = skin.area_faces[idx]
+    # h = u (1 - u) P(u): zero at both panels' planes, which meet at the corner.
+    # The simplest curve that fits: fewer terms first (more bend where the scan has no faces).
+    for terms_n in range(2, BEND_TERMS + 1):
+        fit = _support_fit(u, h, w, terms_n, tol)
+        if fit is None:
+            continue
+        terms, rms = fit
+        trial = Bend(a, b, corner, axis, across, turn, terms, (0.0, 1.0))
+        if _radius_ok(trial, thickness):
+            break
+    else:
+        return None
+    facets = set()
+    for r in regions:
+        if r.id in (a.id, b.id):
+            continue
+        if np.isin(r.faces, idx).mean() >= BEND_FACET_SHARE:
+            facets.add(r.id)
+    if not facets:
+        return None
+    bend = Bend(a, b, corner, axis, across, turn, terms, (lo, hi), facets, rms)
+    # The curve must meet each panel within reach of the corner.
+    pts = bend.outline()
+    reach = np.linalg.norm(
+        pts[[0, -1]] - pts[[0, -1]] @ np.outer(axis, axis) - (corner - (corner @ axis) * axis),
+        axis=1,
+    )
+    if reach.max() > BEND_REACH_MM:
+        return None
+    return bend
+
+
+def _support_fit(u, h, w, terms_n, tol):
+    """h = u (1 - u) P(u), zero at both panels' planes (which meet at the corner), fitted
+    with strays (a bit of the inside, a seam) left out; None when it doesn't fit."""
+    basis = (u * (1 - u))[:, None] * u[:, None] ** np.arange(terms_n)
+    sw = np.sqrt(w)
+    keep = np.ones(len(h), bool)
+    for _ in range(3):
+        terms, *_ = np.linalg.lstsq(basis[keep] * sw[keep, None], h[keep] * sw[keep], rcond=None)
+        resid = h - basis @ terms
+        spread = 1.4826 * np.median(np.abs(resid[keep])) + 1e-6
+        keep = np.abs(resid) <= max(3 * spread, tol / 4)
+    rms = float(np.sqrt(np.average(resid[keep] ** 2, weights=w[keep])))
+    if rms > tol / 2 or w[keep].sum() < BEND_KEPT_SHARE * w.sum():
+        return None
+    return terms, rms
+
+
+def _radius_ok(bend: Bend, thickness: float) -> bool:
+    """The curve's radius stays over the wall's thickness, so its inside is a curve too."""
+    phi = np.linspace(0, bend.turn, 200)
+    h, dh = bend.support(phi)
+    ddh = np.gradient(dh, phi)
+    return bool((h + ddh > thickness).all())
+
+
+def bend_fills(bends: list[Bend], regions: list[Region]) -> dict[int, list[np.ndarray]]:
+    """For each panel square to a fold's axis that reaches the fold (the sides of a cover's
+    nose), the corner it should fill up to the curve: from the corner in to BEND_FILL_MM
+    inside the curve. What lies outside the curve is cut off afterwards."""
+    fills: dict[int, list[np.ndarray]] = {}
+    for bend in bends:
+        outer = bend.outline()
+        deep = bend.outline(BEND_FILL_MM)
+        corner = bend.corner + (bend.span[0] - bend.corner @ bend.axis) * bend.axis
+        loop = np.vstack([outer[:1], corner[None], outer[-1:], deep[::-1]])
+        for r in regions:
+            n = r.plane.normal
+            if abs(n @ bend.axis) < np.cos(np.radians(PARALLEL_DEG * 3)):
+                continue
+            # Onto the panel's plane, along the axis.
+            k = (r.plane.offset - loop @ n) / (bend.axis @ n)
+            fills.setdefault(r.id, []).append(loop + k[:, None] * bend.axis)
+    return fills
+
+
+def _grow(shapes: list[shapely.Polygon], extra: list[shapely.Polygon]) -> list[shapely.Polygon]:
+    """The panel's shapes with the fills that touch them added."""
+    out = list(shapes)
+    for f in extra:
+        f = shapely.make_valid(f)
+        hit = [i for i, s in enumerate(out) if s.distance(f) <= 2 * SMOOTH_MM]
+        if not hit:
+            continue
+        merged = shapely.union_all([out[i] for i in hit] + [f])
+        out = [s for i, s in enumerate(out) if i not in hit]
+        out += [
+            shapely.geometry.polygon.orient(g)
+            for g in shapely.get_parts(merged)
+            if g.geom_type == "Polygon" and g.area >= MIN_PANEL_MM2
+        ]
+    return out
+
+
+def bend_solid(bend: Bend, thickness: float, extra: float = 0.0) -> cq.Solid:
+    """The wall round the fold: between the curve and the curve moved in by the thickness,
+    run along the fold (extra further at each end)."""
+    outer = bend.outline()
+    inner = bend.outline(thickness)
+    start = -extra * bend.axis
+    edges = [
+        cq.Edge.makeSpline([cq.Vector(*(p + start)) for p in outer]),
+        cq.Edge.makeLine(cq.Vector(*(outer[-1] + start)), cq.Vector(*(inner[-1] + start))),
+        cq.Edge.makeSpline([cq.Vector(*(p + start)) for p in inner[::-1]]),
+        cq.Edge.makeLine(cq.Vector(*(inner[0] + start)), cq.Vector(*(outer[0] + start))),
+    ]
+    face = cq.Face.makeFromWires(cq.Wire.assembleEdges(edges))
+    return cq.Solid.extrudeLinear(face, cq.Vector(*((bend.length() + 2 * extra) * bend.axis)))
+
+
+def _corner_solid(bend: Bend, margin: float) -> cq.Solid:
+    """What lies outside the curve, up to the corner, run past both ends of the fold."""
+    outer = bend.outline()
+    corner = bend.corner + (bend.span[0] - bend.corner @ bend.axis) * bend.axis
+    start = -margin * bend.axis
+    edges = [
+        cq.Edge.makeSpline([cq.Vector(*(p + start)) for p in outer]),
+        cq.Edge.makeLine(cq.Vector(*(outer[-1] + start)), cq.Vector(*(corner + start))),
+        cq.Edge.makeLine(cq.Vector(*(corner + start)), cq.Vector(*(outer[0] + start))),
+    ]
+    face = cq.Face.makeFromWires(cq.Wire.assembleEdges(edges))
+    return cq.Solid.extrudeLinear(face, cq.Vector(*((bend.length() + 2 * margin) * bend.axis)))
+
+
+def round_folds(walls: cq.Shape, bends: list[Bend], thickness: float) -> cq.Shape:
+    """The walls with each rounded fold built in: the corner outside its curve cut off and
+    the curved wall added."""
+    for bend in bends:
+        walls = walls.cut(_corner_solid(bend, BEND_REACH_MM)).fuse(bend_solid(bend, thickness))
+        walls = walls.clean()
+    return walls
+
+
+# ---------------------------------------------------------------------------------------------
 # The solid
 # ---------------------------------------------------------------------------------------------
 
@@ -1049,10 +1682,9 @@ def panel_solid(panel: Panel, thickness: float) -> cq.Solid | None:
         return cq.Wire.makePolygon([cq.Vector(*p) for p in points], close=True)
 
     inward = -panel.region.plane.normal * thickness
+    holes = [wire(h) for h in panel.holes] + [s.wire() for s in panel.slots]
     try:
-        solid = cq.Solid.extrudeLinear(
-            wire(panel.outline), [wire(h) for h in panel.holes], cq.Vector(*inward)
-        )
+        solid = cq.Solid.extrudeLinear(wire(panel.outline), holes, cq.Vector(*inward))
     except Exception:  # OpenCASCADE refuses a self-crossing outline in several ways
         try:
             solid = cq.Solid.extrudeLinear(wire(panel.outline), [], cq.Vector(*inward))
