@@ -169,6 +169,11 @@ def scan_quality(mesh: trimesh.Trimesh, level: ToleranceLevel) -> ScanQuality:
 def deviations(mesh: trimesh.Trimesh, shape: cq.Shape, tol: float) -> np.ndarray:
     """Distance from every scan vertex to the model surface."""
     stage("fit")
+    return distances(np.asarray(mesh.vertices), shape, tol)
+
+
+def distances(points: np.ndarray, shape: cq.Shape, tol: float) -> np.ndarray:
+    """Distance from each point to the model surface, exact within a few tolerances."""
     verts, tris = shape.tessellate(tol / 4, angularTolerance=0.1)
     verts = np.array([v.toTuple() for v in verts])
     # A big flat face tessellates into long thin triangles whose bounding boxes overlap half
@@ -176,7 +181,6 @@ def deviations(mesh: trimesh.Trimesh, shape: cq.Shape, tol: float) -> np.ndarray
     max_edge = float(np.linalg.norm(np.ptp(verts, axis=0))) / DEVIATION_DIVISIONS
     verts, tris = trimesh.remesh.subdivide_to_size(verts, np.array(tris), max_edge)
     model = trimesh.Trimesh(verts, tris, process=False)
-    points = np.asarray(mesh.vertices)
     # The exact search gets slow and memory hungry for points far from the model (a part of
     # the scan it does not cover), so those get the distance to the nearest model vertex, an
     # upper bound that is already well out of tolerance.

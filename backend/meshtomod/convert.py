@@ -29,6 +29,7 @@ from .progress import stage
 from .quality import GAP_WARNING, FitScore, ScanQuality, deviations, fit_score, scan_quality
 from .revolve import Revolved, find_revolved
 from .segment import Geo, Region, segment_planes
+from .shell import SHELL_FACES, ShellBuild, ShellInfo, build_shell
 from .step_io import face_type_counts
 from .thicken import Skin, ThickenOptions, find_skin, thicken
 from .tolerance import ToleranceLevel
@@ -48,6 +49,19 @@ PARTIAL_NOTE = (
     "Partial match: the model matches only {:.0f}% of the scan, so parts of it are not "
     "the part. The deviation map shows where (red is furthest off); check those areas "
     "before using the model."
+)
+# With under this share of the scan within this far of the model (or this many tolerances,
+# if more), the model is badly wrong, not just loose: refused, with the reason.
+MIN_USABLE_FIT_PCT = 50.0
+USABLE_MM = 1.0
+USABLE_TOLS = 3.0
+REFUSED_NOTE = (
+    "The model came out badly wrong: only {:.0f}% of the scan is within {:g} mm of it. This "
+    "kind of part isn't supported well yet; a cleaner or fuller scan may help."
+)
+PIECES_NOTE = (
+    "The model came out as {} separate pieces, but the scan is {}. Check the joins between "
+    "them before using it."
 )
 CLOSED_NOTE = (
     "The scan was open where a flat face wasn't scanned (the side the part stood on, or an "
@@ -82,6 +96,8 @@ class ConversionResult:
     """B-spline surfaces: a whole curved side of the part, or a mound or scoop on a face."""
     skin: Skin | None = None
     """A one-sided scan, thickened into the wall that is the solid."""
+    shell: ShellInfo | None = None
+    """A thin-walled part (a cover), rebuilt from its outside faces and wall thickness."""
     volume_mm3: float | None = None
     """Measured from a fine triangulation where OpenCASCADE's own integration is unreliable
     (a thickened skin's long B-spline edges throw it off by a few percent)."""
@@ -106,6 +122,7 @@ class ConversionResult:
             "scan_quality": self.scan.as_dict(),
             "fit": self.fit.as_dict(),
             "features": ([self.skin.as_dict()] if self.skin else [])
+            + ([self.shell.as_dict()] if self.shell else [])
             + [r.as_dict() for r in self.revolved]
             + [f.as_dict() for f in self.freeform]
             + [f.as_dict() for f in self.features if f.kind != "sharp"],
@@ -246,6 +263,12 @@ def convert(
         )
 
     stage("simplify")
+    # A thin-walled part (a cover, a bin) is rebuilt from the outside of its wall: the
+    # flat-face rebuild can't hold walls that thin. Telling one needs triangles well under
+    # the wall's thickness, so it is checked on a denser working mesh.
+    shell = build_shell(working_mesh(mesh, SHELL_FACES), working)
+    if shell is not None:
+        return convert_shell(mesh, shell, scan, level, working)
     light = working_mesh(mesh)
     if not mesh.is_watertight:
         skin = find_skin(light, working, thickness or ThickenOptions(), np.random.default_rng(0))
@@ -382,9 +405,7 @@ def convert(
     solid, failed = apply_features(base, features, planes, adds, cuts)
     dist = deviations(mesh, solid, working.fit_tolerance_mm)
     # A model that misses much of the scan is still handed back, but never silently.
-    plausible = fit_score(mesh, dist, working).within_tolerance_pct
-    partial = plausible < MIN_PLAUSIBLE_FIT_PCT
-    notes = [PARTIAL_NOTE.format(plausible)] if partial else []
+    partial, notes = judge(mesh, solid, dist, working)
     capped += sum(r.outline.capped for r in revolved)
     notes += [CLOSED_NOTE] if capped else []
     return ConversionResult(
@@ -401,6 +422,55 @@ def convert(
         partial=partial,
         base=base,
         start=start,
+    )
+
+
+def judge(
+    mesh: trimesh.Trimesh, solid: cq.Shape, dist: np.ndarray, level: ToleranceLevel
+) -> tuple[bool, list[str]]:
+    """Whether the model is only partly the part, with the notes saying why. A model that
+    matches too little of the scan to be of use is refused (UnsupportedGeometry)."""
+    plausible = fit_score(mesh, dist, level).within_tolerance_pct
+    loose = level.with_overrides(
+        fit_tolerance_mm=max(USABLE_MM, USABLE_TOLS * level.fit_tolerance_mm)
+    )
+    usable = fit_score(mesh, dist, loose).within_tolerance_pct
+    if usable < MIN_USABLE_FIT_PCT:
+        raise UnsupportedGeometry(REFUSED_NOTE.format(usable, loose.fit_tolerance_mm))
+    notes = []
+    if plausible < MIN_PLAUSIBLE_FIT_PCT:
+        notes.append(PARTIAL_NOTE.format(plausible))
+    pieces = len(trimesh.graph.connected_components(mesh.face_adjacency, min_len=1))
+    bodies = len(solid.Solids())
+    if bodies > pieces:
+        notes.append(PIECES_NOTE.format(bodies, "one piece" if pieces == 1 else f"{pieces}"))
+    return bool(notes), notes
+
+
+def convert_shell(
+    mesh: trimesh.Trimesh,
+    shell: ShellBuild,
+    scan: ScanQuality,
+    level: ToleranceLevel,
+    working: ToleranceLevel,
+) -> ConversionResult:
+    """A thin-walled part: its walls, then its standoffs."""
+    stage("solid")
+    solid, failed = apply_features(shell.walls, shell.features, [])
+    dist = deviations(mesh, solid, working.fit_tolerance_mm)
+    partial, notes = judge(mesh, solid, dist, working)
+    return ConversionResult(
+        solid,
+        mesh,
+        [],
+        scan,
+        fit_score(mesh, dist, level),
+        dist,
+        shell.features,
+        notes + shell.notes + ([failed] if failed else []),
+        shell=shell.info,
+        partial=partial,
+        base=shell.walls if shell.features else None,
     )
 
 

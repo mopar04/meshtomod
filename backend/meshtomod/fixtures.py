@@ -18,6 +18,27 @@ def add_noise(mesh: trimesh.Trimesh, sigma_mm: float, seed: int = 0) -> trimesh.
     return noisy
 
 
+def add_wavy_noise(
+    mesh: trimesh.Trimesh, sigma_mm: float, wavelength_mm: float = 1.5, seed: int = 0
+) -> trimesh.Trimesh:
+    """Jitter every vertex by a smooth random field (sigma per axis, varying over about a
+    wavelength), like a scanner's ripple. Unlike add_noise, neighbouring vertices move
+    together, so a long thin triangle of a CAD tessellation (which no scanner makes) keeps
+    its normal."""
+    rng = np.random.default_rng(seed)
+    waves = 24
+    k = rng.normal(size=(waves, 3))
+    k *= (2 * np.pi / wavelength_mm) / np.linalg.norm(k, axis=1, keepdims=True)
+    phase = rng.uniform(0, 2 * np.pi, size=(waves, 3))
+    amp = rng.normal(size=(waves, 3))
+    amp *= sigma_mm / np.sqrt((amp**2).sum(axis=0) / 2)
+    angles = mesh.vertices @ k.T
+    shift = np.stack([np.sin(angles + phase[:, c]) @ amp[:, c] for c in range(3)], axis=1)
+    noisy = mesh.copy()
+    noisy.vertices = noisy.vertices + shift
+    return noisy
+
+
 def box(size=(40.0, 30.0, 20.0), subdivisions: int = 3) -> trimesh.Trimesh:
     mesh = trimesh.creation.box(extents=size)
     for _ in range(subdivisions):
@@ -500,3 +521,43 @@ def unscanned_base(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
     out.update_faces(~drop)
     out.remove_unreferenced_vertices()
     return out
+
+
+def cover_cad(standoffs: bool = True):
+    """A moulded cover like the Max4 toolhead cover: 80 x 50 x 30, walls 1.8 mm, open
+    underneath, three 30 x 3 vent slots in the top, a 20 mm wide, 12 mm deep U notch in one
+    end, and two 6 mm standoffs 15 mm long hanging from the top with 2.5 mm screw holes in
+    their ends, 12 mm deep."""
+    import cadquery as cq
+
+    wall = 1.8
+    shell = cq.Workplane("XY").box(80, 50, 30).faces("<Z").shell(-wall)
+    slots = (
+        cq.Workplane("XY", origin=(0, 0, 15))
+        .pushPoints([(10, -8), (10, 0), (10, 8)])
+        .slot2D(30, 3)
+        .extrude(-5)
+    )
+    notch = cq.Workplane("YZ", origin=(40, 0, -15)).center(0, 6).rect(20, 12).extrude(-5, both=True)
+    part = shell.cut(slots).cut(notch)
+    if standoffs:
+        top = 15 - wall
+        for y in (-15, 15):
+            post = cq.Workplane("XY", origin=(-30, y, top)).circle(3).extrude(-15)
+            bore = cq.Workplane("XY", origin=(-30, y, top - 15)).circle(1.25).extrude(12)
+            part = part.union(post).cut(bore)
+    return part
+
+
+def cover() -> trimesh.Trimesh:
+    """The cover as a scanner sees it: no hole in the ends of the standoffs (a scanner can't
+    see down a narrow bore and skins it over), and densely triangulated."""
+    import cadquery as cq
+
+    part = cover_cad().val()
+    # Skin the screw holes over with a slight dome, the way scans of the Max4 cover show them.
+    for y in (-15, 15):
+        dome = cq.Solid.makeSphere(1.6, cq.Vector(-30, y, 13.2 - 15 + 1.6 - 0.6), angleDegrees1=-90)
+        plug = cq.Workplane("XY", origin=(-30, y, 13.2 - 15)).circle(1.25).extrude(12).val()
+        part = part.fuse(plug).fuse(dome).clean()
+    return subdivided(from_cad(part), 1.5)

@@ -127,6 +127,8 @@ def build_recipe(
     steps: list[dict] = []
     if result.skin is not None:
         steps.append({**result.skin.as_dict(), "replay": False})
+    if result.shell is not None:
+        steps.append({**result.shell.as_dict(), "replay": False})
     turned = [r for r in result.revolved if r.kind == "turned"]
     steps += [{**_revolved(r, frame), "replay": False} for r in turned]
     steps += [{**_feature(f, planes, frame), "replay": False} for f in features if f.kind == "body"]
