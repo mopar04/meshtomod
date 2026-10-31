@@ -188,7 +188,8 @@ move to its bespoke thread"). Pick up from here.
      and back scans, and wiring thicken, axes, sink/extrude, recipe download and
      click-to-delete into the viewer.
 - **In flight:** the follow-ups thread (Duet, branch `claude/project-thread-ivav8i`): the
-  plate's countersinks (this PR), then the big Drive scans (waiting on Zac to attach them to
+  plate's countersinks and a fix for the cancel test that failed main's CI after #26 (one
+  in ten runs; the test, not the app; this PR), then the big Drive scans (waiting on Zac to attach them to
   the "Scans" release) and the Max4 leftovers (grille, slot ends, curved nose). #26 and #27
   (the "other side" upload) are merged.
 

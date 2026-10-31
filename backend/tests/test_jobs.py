@@ -291,13 +291,14 @@ def test_cancel_kills_the_running_process(tmp_path):
     assert proc is not None and job.status == "running"
     jobs.cancel(job.id)
     assert job.status == "cancelled" and jobs.busy() == 0  # free at once, not when it ends
-    proc.join(10)
-    assert not proc.is_alive()
-    for _ in range(100):  # the worker clears its folder once it sees the process end
+    # Only the job's worker waits on the process. If this test waited on it too, the two
+    # would race to collect its exit, and the loser can be told it's still running.
+    for _ in range(200):  # the worker clears its folder once it sees the process end
         if not job.folder.exists():
             break
         time.sleep(0.05)
     assert not job.folder.exists()
+    assert proc.exitcode is not None
     assert job.status == "cancelled"
 
 

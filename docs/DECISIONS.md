@@ -2,6 +2,14 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-31 (flaky cancel test on main)
+- **Only the job's worker waits on a conversion process; tests check what the worker saw.**
+  `test_cancel_kills_the_running_process` waited on the killed process from the test while
+  the worker waited on it too. Two threads collecting one process's exit race, and the loser
+  is told it is still running (about 1 run in 10 in a local repro), which failed main's CI
+  after PR #26. The process was dead; only the test's check was wrong. The test now waits for
+  the worker to clean up, then reads the exit code it recorded.
+
 ## 2026-10-31 (plate countersinks from merged scans)
 - **A scan's rim that touches itself is cut into simple loops, and every edge is kept.** Where
   a scan's view down a bore stops, the rim frays: small gaps share a corner with it. Walking
