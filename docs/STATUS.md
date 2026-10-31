@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-30 (M4 editable history; Zac's batch print scans run; auto-simplify)_
+_Last updated: 2026-10-30 (merged Top/Bottom scans, #24; handoff to the mesh-to-mod channel)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -144,7 +144,52 @@ _Last updated: 2026-10-30 (M4 editable history; Zac's batch print scans run; aut
   - Fixed here: a crash ("SVD did not converge") when an area's faces point every way, like
     a hollow standoff.
 
+## Handoff (2026-10-30): Duet M3 thread to the mesh-to-mod channel
+MeshToMod work moves to Zac's mesh-to-mod Duet channel (Zac: the conversation "needs to ...
+move to its bespoke thread"). Pick up from here.
+
+- **Merged to main through #24.** Duet's M3/M4 PRs: #13 to #19 (curved shapes, freeform,
+  thicken, stand on an axis, sink/extrude/recipe, partial matches), #21 (editable history for
+  Fusion, Onshape, FreeCAD), #24 (merged Top/Bottom scans). Also on main from other work: #22
+  (stuck conversions), #23 (auto-simplify dense scans), #25 (Max4 cover test).
+- **#24 recap, in plain words:** when Zac scans a part twice (top and bottom), the app lines
+  the two scans up and joins them. The join used to leave a crack along the seam and dropped
+  smaller pieces, so the converter guessed at edges. Now it keeps every real piece of both
+  scans, trims the overlap, and stitches the seam closed, so the merged scan is one part.
+  Three shape-fitting fixes rode along: a tapered boss reads its true top (Ø16 to Ø10, not a
+  cone to a point), the turntable ring under the turned part is ignored, and a ring boss whose
+  hole runs through the plate no longer mistakes the plate's underside for its own top.
+  Results on Zac's printed pairs: Turned Part 99.4%, Surfaces Plate 99.6% (was 93%), Freeform
+  98.2% (was 81%). Two new tests cover the turned part merged from two sides and the ring.
+- **Next, in order:**
+  1. The real Surfaces Plate's countersinks: the M5 comes out blind (5.087, 5.8 deep) and the
+     M3 as a plain Ø3.0 hole. The drawn pair gets both right. Debug notes: the M3's turned
+     group is refused over a 4.5 mm² flat inside the hole (about 1.8 mm above the plate's
+     underside), and the M5 group fits a 75 mm² flat disc across the hole; both look like the
+     scanner filling the hole on one side. Check the Bottom scan's holes before changing code.
+  2. The web app's "Add a scan of the other side" upload: written as commit 4d6a5bd on branch
+     `claude/project-thread-dbpogp` (kept off main because #22 rewrote the same code). #22 is
+     merged, so re-apply it onto `startJob`/`watchJob` in `frontend/src/App.tsx` and `api.ts`
+     (the API already takes `second_file`).
+  3. The 10 Drive scans of 10 MB or more (thin wall, Cali, bottle, wave skin and the merged
+     ones) that the Drive connector won't download: they need Zac's Mac or a smaller export.
+  4. The rest of the M3 list: thin walls from measured thickness (bin scan), the cap's front
+     and back scans, and wiring thicken, axes, sink/extrude, recipe download and
+     click-to-delete into the viewer.
+- **In flight:** nothing. No open Duet PR after #24; no uncommitted work.
+
 ## In progress
+- **Merged Top/Bottom scans (2026-10-30):** the merge now keeps every big piece of each scan,
+  trims the second scan to where it lies off the first and stitches the two rims together, so
+  a merged pair converts as one part. Zac's printed pairs, merged then converted (Functional):
+  Turned Part 99.4% (Ø30 x 44 turned body, Ø4 cross hole, its scanned base used), Surfaces
+  Plate 99.6% (up from 93%: dome, tapered boss Ø16 to Ø10, ring Ø19.7 with its bore through),
+  Freeform 98.2% (up from 81%). Still off on the real plate: the M5 countersink comes out
+  blind and the M3 as a plain hole; the same pair built from the drawing gets both right.
+  Tests: the turned part merged from two sides, and the ring through a plate whose far side
+  the merge didn't join. Merged as #24. The web app's "other side" upload is written (commit
+  4d6a5bd) and can go in now that #22 is merged (see the handoff above).
+
 - **M4 editable history (2026-10-30, Zac: Fusion, Onshape, FreeCAD; "Merge once complete"):**
   the Export menu now offers STEP (default), an editable history for each tool, or one zip
   with everything. Each history rebuilds the part as a base solid plus one feature per step
@@ -283,7 +328,7 @@ Still open before a public launch:
   add the four DNS records (steps in `docs/DEPLOY.md`).
 - Decide: keep `scanner_holder.stl` as a public fixture; a contact address on the privacy page.
   (Default units: mm. Donate page: Zac's Buy Me a Coffee, below.)
-- The UI has no way to add the second scan for merging (API only).
+- The UI has no way to add the second scan for merging (API only; written as 4d6a5bd, ready to re-apply after #22).
 
 ## Next (M2.5: real-scan readiness, agreed with Zac)
 - Thin walls: detect wall pairs, measure thickness, patch missing wall areas from it (bin).

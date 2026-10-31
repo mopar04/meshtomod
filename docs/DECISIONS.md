@@ -47,6 +47,25 @@ Newest first. One entry per choice a later session should not have to relitigate
   4.9 GB, 70 s), and the API container has 7 GB. 5M is about a 200 MB binary STL, the upload
   limit. A server whose `.env` was copied before this still says 2500000 there; raise it.
 
+## 2026-10-30 (merged Top/Bottom scans)
+- **A merge keeps every big piece of each scan and stitches the seam** (`merge.py`). Each
+  scan keeps the pieces that are at least a tenth of its biggest (a scan of a plate can come
+  apart at a thin edge), the second scan is trimmed to where it lies off the first (measured
+  to the first's surface, not its vertices), and the two rims are zipped together where they
+  run within 2 mm of each other. The merged scan is one closed piece where the scans met, so
+  the convert sees the true edges instead of a crack and a closed-flat guess.
+- **A flat that a turned part already makes is not a separate base.** A leftover of the
+  turntable side (the ring the part stood on) that lies on the turned surface is dropped
+  from the planes, so the turned part uses its own scanned end.
+- **A flat face square to a turned shape that reaches well past it is what the shape stands
+  on, not its cap,** and small flat slivers lying on that face are part of it. A ring boss
+  whose bore runs through a plate otherwise took the plate's far side for its top when the
+  scan hadn't joined that side to the plate's edges. Pieces of one flat face (split by noise
+  or a seam) count as one face to stand on.
+- **A tapered boss's top is its top edge** (the highest 2% of the profile), not the mean of
+  the flat, and an arc that ends on the axis is centred on it (a dome's cap).
+
+
 ## 2026-10-30 (M4: editable history)
 - **Targets: Fusion, Onshape and FreeCAD** (Zac: "usable on commonly used accessible paid apps
   like fusion, onshape, and freecad"; Creo is not a target). STEP stays the default export.

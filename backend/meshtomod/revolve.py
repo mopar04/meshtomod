@@ -1105,6 +1105,41 @@ def find_groups(
         deep = rp < outside - POCKET_TOLS * level.fit_tolerance_mm
         return bool(area[pf][deep].sum() >= 0.5 * area[pf].sum())
 
+    def _settle_bases(
+        members: set[int], square_planes: set[int], refused: set[int], junk: set[int]
+    ) -> None:
+        """Once the shape has grown: a flat face square to the axis that reaches well past
+        the shape is what it stands on, not its cap (the far side of a plate that a ring's
+        bore runs through, when the scan didn't join the plate's edge to it). Small flat
+        areas lying on a face it stands on are part of that face, and only what still
+        borders the shape runs into it."""
+        curved = [m for m in members if m not in plane_by_id]
+        if not curved:
+            return
+        reach = max(level.min_feature_mm, 4 * level.fit_tolerance_mm)
+        radius = axis.to_profile(centres[np.concatenate([faces_of[m] for m in curved])])[:, 1]
+        for m in sorted(members):
+            r = axis.to_profile(centres[faces_of[m]])[:, 1]
+            if square(m, axis) and r.max() > radius.max() + reach:
+                members.discard(m)
+                square_planes.add(m)
+        if not square_planes:
+            return
+        small = POCKET_SHARE * sum(area[faces_of[m]].sum() for m in members)
+        for m in sorted((members | refused) & set(plane_by_id)):
+            pts = centres[faces_of[m]]
+            if area[faces_of[m]].sum() <= small and any(
+                np.abs(pts @ plane_by_id[b].plane.normal - plane_by_id[b].plane.offset).max()
+                <= POCKET_TOLS * level.fit_tolerance_mm
+                for b in square_planes
+            ):
+                members.discard(m)
+                refused.discard(m)
+                junk.add(m)
+        for lab in list(refused):
+            if not touching.get(lab, set()) & members:
+                refused.discard(lab)
+
     # Seeds that touch, by label.
     seed_list = sorted(seeds & set(faces_of))
     index = {s: i for i, s in enumerate(seed_list)}
@@ -1158,10 +1193,16 @@ def find_groups(
                     junk.add(lab)
                 else:
                     refused.add(lab)
+        _settle_bases(members, square_planes, refused, junk)
         pockets = refused - cuttable
         if pockets and (square_planes or not sunk(pockets, members, axis)):
             continue  # it runs into something that isn't turned about this axis
-        bases = [plane_by_id[i] for i in sorted(square_planes)]
+        # Noise or a seam can split the face it stands on in two; that is still one face.
+        bases: list[Region] = []
+        for r in sorted((plane_by_id[i] for i in square_planes), key=lambda r: -r.area):
+            if not any(level_with(r.id, b.id) for b in bases):
+                bases.append(r)
+        bases.sort(key=lambda r: r.id)
         if len(bases) > 2 or (
             len(bases) == 2 and bases[0].plane.normal @ bases[1].plane.normal > 0
         ):
@@ -1725,7 +1766,11 @@ def _snap_pieces(
             continue
         radius = _snap_value(piece.radius, budget)
         centre = piece.centre.copy()
-        if abs(centre[1]) <= tol:
+        # An arc that ends on the axis is a ball: off it, it would leave a point or a dimple.
+        on_axis = ends is not None and any(
+            neighbour(k, step) is None and ends[step > 0].kind == "axis" for step in (-1, 1)
+        )
+        if abs(centre[1]) <= tol or on_axis:
             centre[1] = 0.0
         tangent: list[Line2] = []
         for step in (-1, 1):
@@ -1957,6 +2002,19 @@ class Revolved:
     def as_dict(self) -> dict:
         return {"type": self.kind, **self.dims}
 
+    def on_surface(self, points: np.ndarray, tol: float) -> np.ndarray:
+        """Which points lie on the shape's surface, within tol."""
+        q = self.axis.to_profile(points)
+        out = np.zeros(len(q), bool)
+        path = _outline_path(self.outline)
+        for i in range(0, len(q), 2000):
+            out[i : i + 2000] = _gap(q[i : i + 2000], path) <= tol
+        return out
+
+
+# A tapered boss's top is the part of its outline within this share of its height of the top.
+TOP_SHARE = 0.02
+
 
 def describe(
     outline: Outline, bases: list[Region], axis: Axis, has_add: bool, has_cut: bool
@@ -1990,7 +2048,8 @@ def describe(
                 "diameter_mm": diameter,
             }
         if kinds.count("cone") == 1 and set(kinds) <= {"cone", "plane"}:
-            top = float(sampled[above >= above.max() - 1e-6, 1].max())
+            # The top's width: noise can leave its flat a hair off square to the axis.
+            top = float(sampled[above >= (1 - TOP_SHARE) * above.max(), 1].max())
             return "tapered_boss", {
                 "diameters_mm": [diameter, round(2 * top, 3)],
                 "height_mm": height,
@@ -2088,7 +2147,8 @@ def find_revolved(
         if add is None and cut is None:
             continue
         kind, dims = describe(outline, group.bases, group.axis, add is not None, cut is not None)
-        faces = np.flatnonzero(np.isin(labels, list(group.labels | group.junk)))
+        every = group.labels | group.junk | group.pockets
+        faces = np.flatnonzero(np.isin(labels, list(every)))
         z = Axis.to_profile(group.axis, mesh.vertices[mesh.faces[faces]].mean(axis=1))[:, 0]
         inside = np.ones(len(faces), bool)
         for b in group.bases:
@@ -2107,8 +2167,8 @@ def find_revolved(
                 outline,
                 add,
                 cut,
-                group.labels | group.junk | group.pockets,
-                np.flatnonzero(np.isin(labels, list(group.labels | group.junk | group.pockets))),
+                every,
+                faces,
                 inside,
                 dims,
                 *profiles,
@@ -2118,10 +2178,27 @@ def find_revolved(
     return found
 
 
+def _outline_path(outline: Outline) -> np.ndarray:
+    """The outline as a closed polyline in (z, r)."""
+    path = np.concatenate([_samples(outline, k)[:-1] for k in range(len(outline.pieces))])
+    return np.concatenate([path, outline.points[-1][None]])
+
+
+def _gap(q: np.ndarray, path: np.ndarray) -> np.ndarray:
+    """How far each (z, r) point is from a closed polyline."""
+    a, b = path, np.roll(path, -1, axis=0)
+    d = b - a
+    t = np.clip(
+        ((q[:, None] - a[None]) * d[None]).sum(axis=2) / np.maximum((d * d).sum(axis=1), 1e-12),
+        0.0,
+        1.0,
+    )
+    return np.linalg.norm(q[:, None] - (a[None] + t[..., None] * d[None]), axis=2).min(axis=1)
+
+
 def _sunk_faces(q: np.ndarray, outline: Outline, depth: float) -> np.ndarray:
     """Which (z, r) points lie inside a turned part's outline, deeper than depth below it."""
-    path = np.concatenate([_samples(outline, k)[:-1] for k in range(len(outline.pieces))])
-    path = np.concatenate([path, outline.points[-1][None]])
+    path = _outline_path(outline)
     a, b = path, np.roll(path, -1, axis=0)
     # Inside: crossings of a ray along +z (the outline closes along the axis).
     crosses = (a[None, :, 1] > q[:, None, 1]) != (b[None, :, 1] > q[:, None, 1])
@@ -2131,14 +2208,7 @@ def _sunk_faces(q: np.ndarray, outline: Outline, depth: float) -> np.ndarray:
             + (q[:, None, 1] - a[None, :, 1]) * (b - a)[None, :, 0] / (b - a)[None, :, 1]
         )
     inside = (crosses & (z > q[:, None, 0])).sum(axis=1) % 2 == 1
-    d = b - a
-    t = np.clip(
-        ((q[:, None] - a[None]) * d[None]).sum(axis=2) / np.maximum((d * d).sum(axis=1), 1e-12),
-        0.0,
-        1.0,
-    )
-    gap = np.linalg.norm(q[:, None] - (a[None] + t[..., None] * d[None]), axis=2).min(axis=1)
-    return inside & (gap > depth)
+    return inside & (_gap(q, path) > depth)
 
 
 def cross_holes(
