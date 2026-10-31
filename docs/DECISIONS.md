@@ -2,6 +2,30 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-31 (thin-walled covers, PR #26)
+- **Shells are tried first, on a 250k-face copy.** Right after simplify, the converter checks
+  whether the scan is a thin wall: most faces have an opposite-facing face a steady distance
+  behind them. If so it rebuilds the outside as flat panels and extrudes each one inward by
+  the measured thickness, instead of fitting solid blocks. 60k faces is too coarse to pair a
+  1.6 mm wall; 250k is enough and still quick. Solid parts (box, plate, frame, bracket, a
+  2 mm plate) are tested not to be taken for shells.
+- **Gently bowed panels count as flat on a shell.** Panels are grown with at least 0.5 mm
+  tolerance, and parallel pieces in one plane are merged even when they don't touch. A
+  printed cover's panels sag; the CAD intent is flat.
+- **Holes in the wall are kept only when there is no surface behind them.** A gap in the scan
+  is filled when the scan shows surface along the panel at any depth from 1 mm proud to just
+  behind the wall (pinholes, logo letters scanned as dents); an opening is kept when at least
+  half of it has nothing (vent slots, U notch, open underside). Real vents scored at most
+  0.17 and real gaps at least 0.67.
+- **Standoffs are tubes square to a panel, sized as one family.** A sealed end (the scanner
+  skinned the hole over, seen as a dome) gets the usual pilot hole for the post's screw: M2
+  1.7, M2.5 2.1, M3 2.5, M4 3.4, M5 4.2 mm, with a note. Posts within a tolerance of each
+  other get the same size.
+- **Refuse only a badly wrong model.** A result is refused when under 50% of the scan is
+  within max(1 mm, 3 tolerances); under 90% within tolerance it is returned as partial with
+  the deviation map (Zac's 2026-10-28 call). It is also marked partial when the model has
+  more solids than the scan has pieces, since that means a part fell apart.
+
 ## 2026-10-30 (stuck conversions, PR #22)
 - **A job belongs to whoever is watching it.** The page checks a job's status every 1.5 s;
   that check doubles as a heartbeat. A queued or running job nobody has checked on for 3
