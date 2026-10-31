@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-31 (thin-walled covers as shells, PR #26)_
+_Last updated: 2026-10-31 (plate countersinks from merged scans)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -173,12 +173,12 @@ move to its bespoke thread"). Pick up from here.
   Results on Zac's printed pairs: Turned Part 99.4%, Surfaces Plate 99.6% (was 93%), Freeform
   98.2% (was 81%). Two new tests cover the turned part merged from two sides and the ring.
 - **Next, in order:**
-  1. The real Surfaces Plate's countersinks: the M5 comes out blind (5.087, 5.8 deep) and the
+  1. (Done 2026-10-31.) The real Surfaces Plate's countersinks: the M5 came out blind (5.087, 5.8 deep) and the
      M3 as a plain Ø3.0 hole. The drawn pair gets both right. Debug notes: the M3's turned
      group is refused over a 4.5 mm² flat inside the hole (about 1.8 mm above the plate's
      underside), and the M5 group fits a 75 mm² flat disc across the hole; both look like the
      scanner filling the hole on one side. Check the Bottom scan's holes before changing code.
-  2. The web app's "Add a scan of the other side" upload: written as commit 4d6a5bd on branch
+  2. (Done 2026-10-31, #27.) The web app's "Add a scan of the other side" upload: written as commit 4d6a5bd on branch
      `claude/project-thread-dbpogp` (kept off main because #22 rewrote the same code). #22 is
      merged, so re-apply it onto `startJob`/`watchJob` in `frontend/src/App.tsx` and `api.ts`
      (the API already takes `second_file`).
@@ -188,8 +188,9 @@ move to its bespoke thread"). Pick up from here.
      and back scans, and wiring thicken, axes, sink/extrude, recipe download and
      click-to-delete into the viewer.
 - **In flight:** the follow-ups thread (Duet, branch `claude/project-thread-ivav8i`): the
-  "other side" upload, the plate's countersinks, the big Drive scans and the Max4 leftovers
-  (grille, slot ends, curved nose). #26 is merged.
+  plate's countersinks (this PR), then the big Drive scans (waiting on Zac to attach them to
+  the "Scans" release) and the Max4 leftovers (grille, slot ends, curved nose). #26 and #27
+  (the "other side" upload) are merged.
 
 ## In progress
 - **Merged Top/Bottom scans (2026-10-30):** the merge now keeps every big piece of each scan,
@@ -197,8 +198,11 @@ move to its bespoke thread"). Pick up from here.
   a merged pair converts as one part. Zac's printed pairs, merged then converted (Functional):
   Turned Part 99.4% (Ø30 x 44 turned body, Ø4 cross hole, its scanned base used), Surfaces
   Plate 99.6% (up from 93%: dome, tapered boss Ø16 to Ø10, ring Ø19.7 with its bore through),
-  Freeform 98.2% (up from 81%). Still off on the real plate: the M5 countersink comes out
-  blind and the M3 as a plain hole; the same pair built from the drawing gets both right.
+  Freeform 98.2% (up from 81%). The real plate's countersinks were off (M5 blind, M3 a plain
+  hole); fixed 2026-10-31 (see DECISIONS): both are now through countersinks, M5 Ø5.3 with a
+  Ø10.4 head at 90° (named "M5 close fit", as printed), M3 Ø3.0 with a Ø6.4 head at 94°.
+  The ring now reads Ø20.0 and the tapered boss 8.0 tall (were 19.7 and 8.2). Functional,
+  99.5% within tolerance.
   Tests: the turned part merged from two sides, and the ring through a plate whose far side
   the merge didn't join. Merged as #24. The web app now has "Add a scan of the other side"
   under the open mesh (2026-10-31, re-applied from commit 4d6a5bd onto #22's job flow): the

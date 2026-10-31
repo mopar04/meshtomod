@@ -2,6 +2,23 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-31 (plate countersinks from merged scans)
+- **A scan's rim that touches itself is cut into simple loops, and every edge is kept.** Where
+  a scan's view down a bore stops, the rim frays: small gaps share a corner with it. Walking
+  the rim picked one way on at such a corner and dropped the rest, so the merge couldn't
+  stitch the two scans inside the bore and the hole was later capped (the M5 came out blind).
+  A stretch of the other scan's rim that runs along more than one of these loops is stitched
+  to each in turn. On the real Surfaces Plate pair the merged mesh went from 1,328 open edges
+  to 307.
+- **A small scrap floating inside a bore is junk, not a reason to give up on the shape.** The
+  bottom scan's frayed lip curls into the M3 bore. A refused area counts as junk when nearly
+  all of it lies inside walls that face the axis all round at its height (only air there).
+  A cross hole's mouth in a turned part has no such wall all round, so it stays a pocket.
+- **Sizes are read where a piece is, not from its line's offset.** Noise tilts a shank or a
+  flat a fraction of a degree; the offset of a tilted line is no radius (the M3 shank read
+  8.1 mm). Radii and heights are taken at the piece's median point, and a countersink's angle
+  from its longest cone (a short steeper one beside it is the blurred top edge).
+
 ## 2026-10-31 (thin-walled covers, PR #26)
 - **Shells are tried first, on a 250k-face copy.** Right after simplify, the converter checks
   whether the scan is a thin wall: most faces have an opposite-facing face a steady distance

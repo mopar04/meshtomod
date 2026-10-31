@@ -205,29 +205,30 @@ def _stitched(a: trimesh.Trimesh, b: trimesh.Trimesh) -> trimesh.Trimesh:
     strips = []
     for loop in _rim_loops(b):
         d, j = tree.query(b.vertices[loop])
-        for run in _runs(d < STITCH_MM):
-            q = loop[run]
-            ka = np.bincount(which[j[run]]).argmax()
-            if (which[j[run]] != ka).any():
-                continue
-            la = loops_a[ka]
-            n = len(la)
-            # Where along a's rim each point lands, unwrapped round the loop. Across the seam
-            # the two rims run opposite ways (both scans face outwards), so walking b's run
-            # walks a's rim backwards.
-            u = where[j[run]].astype(float)
-            u = u[0] + np.concatenate([[0.0], np.cumsum((np.diff(u) + n / 2) % n - n / 2)])
-            back = int(round(u[0] - u[-1]))
-            if back < 1:
-                continue
-            if len(run) == len(loop) and back >= n - 3:  # the whole rim, round the whole loop
-                back, q = n, np.r_[q, q[0]]
-            p = la[(int(u[0]) - np.arange(back + 1)) % n]
-            la_len = np.linalg.norm(np.diff(a.vertices[p], axis=0), axis=1).sum()
-            lb_len = np.linalg.norm(np.diff(b.vertices[q], axis=0), axis=1).sum()
-            if max(la_len, lb_len) > STITCH_LENGTH_RATIO * max(min(la_len, lb_len), 1e-9):
-                continue
-            strips.append(_zip(verts, p, q + off))
+        for near_run in _runs(d < STITCH_MM):
+            # A stretch of b's rim can run along more than one of a's loops (a rim cut where it
+            # touches itself): each part is joined to its own loop.
+            for run in _split_by(near_run, which[j[near_run]]):
+                q = loop[run]
+                ka = which[j[run[0]]]
+                la = loops_a[ka]
+                n = len(la)
+                # Where along a's rim each point lands, unwrapped round the loop. Across the seam
+                # the two rims run opposite ways (both scans face outwards), so walking b's run
+                # walks a's rim backwards.
+                u = where[j[run]].astype(float)
+                u = u[0] + np.concatenate([[0.0], np.cumsum((np.diff(u) + n / 2) % n - n / 2)])
+                back = int(round(u[0] - u[-1]))
+                if back < 1:
+                    continue
+                if len(run) == len(loop) and back >= n - 3:  # the whole rim, round the whole loop
+                    back, q = n, np.r_[q, q[0]]
+                p = la[(int(u[0]) - np.arange(back + 1)) % n]
+                la_len = np.linalg.norm(np.diff(a.vertices[p], axis=0), axis=1).sum()
+                lb_len = np.linalg.norm(np.diff(b.vertices[q], axis=0), axis=1).sum()
+                if max(la_len, lb_len) > STITCH_LENGTH_RATIO * max(min(la_len, lb_len), 1e-9):
+                    continue
+                strips.append(_zip(verts, p, q + off))
     faces = np.concatenate([a.faces, b.faces + off, *strips]) if strips else None
     if faces is None:
         return trimesh.util.concatenate([a, b])
@@ -236,25 +237,41 @@ def _stitched(a: trimesh.Trimesh, b: trimesh.Trimesh) -> trimesh.Trimesh:
 
 def _rim_loops(mesh: trimesh.Trimesh) -> list[np.ndarray]:
     """The mesh's open rims as closed loops of vertices, each in the direction its faces run
-    along it. Rims that touch themselves (a vertex on two rim edges out) are cut there."""
+    along it. Rims that touch themselves (a vertex with two rim edges out, common where a
+    scan's hole wall frays at its end) are cut there into simple loops. Every rim edge ends
+    up in a loop: walking on from such a vertex used to pick one way and drop the other,
+    which left most of a hole's rim out and the seam there open."""
     edges = mesh.edges[trimesh.grouping.group_rows(mesh.edges_sorted, require_count=1)]
     if not len(edges):
         return []
-    nxt: dict[int, int] = {}
+    nxt: dict[int, list[int]] = {}
     for u, v in edges:
-        nxt.setdefault(int(u), int(v))
-    loops, seen = [], set()
-    for start in nxt:
-        if start in seen:
-            continue
-        loop, u = [], start
-        while u in nxt and u not in seen:
-            seen.add(u)
-            loop.append(u)
-            u = nxt[u]
-        if u == start and len(loop) >= 3:
-            loops.append(np.array(loop))
+        nxt.setdefault(int(u), []).append(int(v))
+    loops = []
+    for start in list(nxt):
+        while nxt[start]:
+            path, at = [start], {start: 0}
+            while nxt.get(path[-1]):
+                v = nxt[path[-1]].pop()
+                if v not in at:
+                    at[v] = len(path)
+                    path.append(v)
+                    continue
+                # Back at a vertex on this walk: the stretch since is one loop.
+                i = at[v]
+                if len(path) - i >= 3:
+                    loops.append(np.array(path[i:]))
+                for w in path[i + 1 :]:
+                    del at[w]
+                del path[i + 1 :]
+            # What's left of a walk that can't close (a non-manifold rim) is dropped.
     return loops
+
+
+def _split_by(run: np.ndarray, label: np.ndarray) -> list[np.ndarray]:
+    """run cut into stretches of one label each, keeping those long enough to stitch."""
+    cuts = np.flatnonzero(np.diff(label)) + 1
+    return [r for r in np.split(run, cuts) if len(r) >= STITCH_MIN_POINTS]
 
 
 def _runs(near: np.ndarray) -> list[np.ndarray]:
