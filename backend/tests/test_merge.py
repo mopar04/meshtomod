@@ -77,3 +77,24 @@ def test_merged_turned_part_keeps_its_scanned_base():
     assert hole["diameter_mm"] == pytest.approx(4.0, abs=0.05)
     assert report["fit"]["within_tolerance_pct"] > 99.5
     assert not any("closed flat" in n for n in report["notes"])
+
+
+def test_a_rim_that_touches_itself_is_kept_whole():
+    # Where a scan's view of a bore stops, its rim frays: a small gap beside the rim shares a
+    # corner with it. Every rim edge must still be in a loop to stitch to; dropping the rest of
+    # the rim at that corner left the seam open and the hole capped (a blind countersink).
+    from meshtomod.merge import _rim_loops
+
+    grid = trimesh.creation.box((10, 10, 1)).subdivide().subdivide()
+    top = np.flatnonzero(grid.face_normals[:, 2] > 0.9)
+    centre = grid.triangles_center[top]
+    hole = top[np.argmin(np.linalg.norm(centre[:, :2], axis=1))]
+    # A face that touches the hole at one corner only: removing it pinches the rim there.
+    corner = set(grid.faces[hole])
+    beside = [f for f in top if f != hole and len(corner & set(grid.faces[f])) == 1][0]
+    keep = np.ones(len(grid.faces), bool)
+    keep[[hole, beside]] = False
+    grid.update_faces(keep)
+    rim_edges = trimesh.grouping.group_rows(grid.edges_sorted, require_count=1)
+    loops = _rim_loops(grid)
+    assert sum(len(loop) for loop in loops) == len(rim_edges) == 6

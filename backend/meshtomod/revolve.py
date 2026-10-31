@@ -1105,6 +1105,31 @@ def find_groups(
         deep = rp < outside - POCKET_TOLS * level.fit_tolerance_mm
         return bool(area[pf][deep].sum() >= 0.5 * area[pf].sum())
 
+    def in_bore(lab: int, members: set[int], axis: Axis) -> bool:
+        """A small scrap floating in the open middle of a hole the shape has (where a scan of
+        the far side frays at the end of the bore and curls in): inside the walls that face
+        the axis at its height, where there is only air."""
+        lf = faces_of[lab]
+        mf = np.concatenate([faces_of[m] for m in members])
+        if area[lf].sum() > POCKET_SHARE * area[mf].sum():
+            return False
+        inward = (normals[mf] * axis.radial(centres[mf])).sum(axis=1) < -0.5
+        if not inward.any():
+            return False
+        zw, rw = axis.to_profile(centres[mf[inward]]).T
+        zl, rl = axis.to_profile(centres[lf]).T
+        reach = max(level.min_feature_mm, 4 * level.fit_tolerance_mm)
+        # A bore has its wall all round at the scrap's height; the mouth of a cross hole in a
+        # turned part (a pocket, cut afterwards) has no such wall about this axis.
+        band = np.abs(zw - np.median(zl)) <= reach
+        if coverage(axis, centres[mf[inward]][band]) < FULL_COVERAGE:
+            return False
+        inside = np.zeros(len(lf), bool)
+        for k in range(len(lf)):
+            wall = rw[np.abs(zw - zl[k]) <= reach]
+            inside[k] = len(wall) >= 3 and rl[k] < np.median(wall)
+        return bool(area[lf][inside].sum() >= 0.8 * area[lf].sum())
+
     def _settle_bases(
         members: set[int], square_planes: set[int], refused: set[int], junk: set[int]
     ) -> None:
@@ -1194,6 +1219,10 @@ def find_groups(
                 else:
                     refused.add(lab)
         _settle_bases(members, square_planes, refused, junk)
+        for lab in sorted(refused - cuttable):
+            if in_bore(lab, members, axis):
+                refused.discard(lab)
+                junk.add(lab)
         pockets = refused - cuttable
         if pockets and (square_planes or not sunk(pockets, members, axis)):
             continue  # it runs into something that isn't turned about this axis
@@ -1409,15 +1438,15 @@ def build_outline(
         weights[key] = weights.get(key, 0) + 1
         corner_verts.setdefault(key, []).extend(edge.tolist())
     order, closed = _order(parts, weights)
-    if not order:
-        # A scrap fitted on its own in a corner (a few faces of a scan's rounded inside
-        # corner) can link three pieces: the outline goes on without it.
-        scrap = min(
-            SCRAP_SHARE * sum(p.area for p in parts), SCRAP_FEATURES * level.min_feature_mm**2
-        )
-        small = frozenset(i for i, p in enumerate(parts) if p.area < scrap)
-        if small:
-            order, closed = _order(parts, weights, small)
+    # A scrap fitted on its own in a corner (a few faces of a scan's rounded inside corner) can
+    # link three pieces, and one on a long wall (a seam inside a bore where two scans were
+    # merged) can hang off the outline as a false end: the outline goes on without it.
+    scrap = min(SCRAP_SHARE * sum(p.area for p in parts), SCRAP_FEATURES * level.min_feature_mm**2)
+    small = frozenset(i for i, p in enumerate(parts) if p.area < scrap)
+    if small and (not order or (not closed and {order[0], order[-1]} & small)):
+        without, closed_without = _order(parts, weights, small)
+        if without or not order:
+            order, closed = without, closed_without
     if not order:
         return None
     pieces = [parts[i].piece for i in order]
@@ -1692,13 +1721,17 @@ def _snap_pieces(
     for k, piece in enumerate(pieces):
         if not isinstance(piece, Line2) or piece.kind() == "cone":
             continue
+        # Where the piece is: noise can tilt it a little off square to the axis (or off
+        # parallel), and then its offset alone is no height or radius.
+        z_at, r_at = np.median(pts_of[k], axis=0)
         if piece.kind() == "plane":
             s = float(np.sign(piece.normal[0]))
-            z = z0 + _snap_value(piece.offset * s - z0, budget)
+            z = (piece.offset - piece.normal[1] * r_at) / piece.normal[0]
+            z = z0 + _snap_value(z - z0, budget)
             snapped = Line2(np.array([s, 0.0]), s * z)
         else:
             s = float(np.sign(piece.normal[1]))
-            radius = piece.offset * s
+            radius = (piece.offset - piece.normal[0] * z_at) / piece.normal[1]
             # Same rules as holes and bosses, so a countersink's shank comes out as a hole.
             radius, names[k] = _snap_radius(radius, tol, "hole" if s < 0 else "boss")
             snapped = Line2(np.array([0.0, s]), s * radius)
@@ -2068,12 +2101,17 @@ def describe(
         and cyl
         and set(kinds) <= {"cone", "cylinder", "plane"}
     ):
-        at = min(cyl, key=lambda k: abs(outline.pieces[k].offset))
-        shank = outline.pieces[at]
-        cone = outline.pieces[kinds.index("cone")]
+        # Measured along the shank: noise can leave it a hair off parallel to the axis.
+        radius = {k: float(np.median(_samples(outline, k)[:, 1])) for k in cyl}
+        at = min(cyl, key=radius.get)
+        shank_r = radius[at]
+        # The longest cone is the countersink; a short one beside it is a blurred edge.
+        cones = [k for k, kind in enumerate(kinds) if kind == "cone"]
+        length = {k: float(np.ptp(_samples(outline, k), axis=0) @ [1, 1]) for k in cones}
+        cone = outline.pieces[max(cones, key=length.get)]
         half = np.degrees(np.arctan2(abs(cone.direction[1]), abs(cone.direction[0])))
         out_d = {
-            "diameter_mm": round(2 * abs(shank.offset), 3),
+            "diameter_mm": round(2 * shank_r, 3),
             "head_mm": diameter,
             "angle_deg": round(float(2 * half), 2),
         }
