@@ -253,8 +253,13 @@ def wall_partners(work: Geo) -> tuple[np.ndarray, np.ndarray]:
         todo = np.flatnonzero(partner < 0)
         if not len(todo):
             break
-        d, g = tree.query(centres[todo] - s * normals[todo], k=1)
-        ok = (d < PAIR_LATERAL_MM) & ((normals[g] * normals[todo]).sum(axis=1) < PAIR_OPPOSED)
+        # The bound matters: inside a solid part most probes are far from every face, and an
+        # unbounded nearest search over the whole tree took minutes.
+        d, g = tree.query(
+            centres[todo] - s * normals[todo], k=1, distance_upper_bound=PAIR_LATERAL_MM, workers=-1
+        )
+        near = np.flatnonzero(d < PAIR_LATERAL_MM)
+        ok = near[(normals[g[near]] * normals[todo[near]]).sum(axis=1) < PAIR_OPPOSED]
         partner[todo[ok]] = g[ok]
     gap = np.full(len(centres), np.nan)
     has = partner >= 0
