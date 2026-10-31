@@ -2,6 +2,27 @@
 
 Newest first. One entry per choice a later session should not have to relitigate.
 
+## 2026-10-31 (Max4 grille, slots and curved nose)
+- **An opening in a thin wall is found from its sides, not from the gap in the outside.**
+  Through a narrow slot the scanner sees the inside of the wall beyond it, so the gap alone
+  can't say whether it goes through (the grille came out closed). A gap in a panel's outside
+  counts as an opening when most of its rim has wall going down from it, square to the
+  panel, and most of it has no outward-facing surface between the outside and the inside of
+  the wall. Gaps that fail either test are still filled as unscanned patches.
+- **Long openings are cut as slots: straight sides and true round ends.** A traced outline
+  of a slot's scanned rim is ragged and faceted. Openings at least 2.5 times as long as
+  wide are fitted as slots. Slots side by side are measured as rows across their common
+  direction (so a lost bar between two still gives two slots), and rows apart along it are
+  measured apart, so a short narrow grille beside long wide vents keeps its own width.
+- **A rounded fold between two panels is fitted as one smooth curve and extruded along the
+  fold.** The facets of a curved nose are replaced by a curve described by its distance
+  from the panels' corner at each angle (a support function), in the simplest form (2 to 5
+  terms) that fits within half the tolerance and keeps the curve's radius bigger than the
+  wall, so the inner skin never folds over. Outliers are trimmed first. Only folds between
+  two big panels whose facets all lie along one axis qualify.
+- **The grille test cover's skin is 0.1 mm.** A thicker one puts an outward-facing floor
+  inside the slot that a real scan never has (the scan sees only the inside of the wall).
+
 ## 2026-10-31 (flaky cancel test on main)
 - **Only the job's worker waits on a conversion process; tests check what the worker saw.**
   `test_cancel_kills_the_running_process` waited on the killed process from the test while

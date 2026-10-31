@@ -55,7 +55,31 @@ def test_cover_keeps_its_openings(cover):
         assert not inside(solid, 10, y, mid_wall)
     assert not inside(solid, 40 - 0.9, 0, -15 + 3)
     assert not inside(solid, 0, 0, -15 + 0.5)
-    assert cover.report()["features"][0]["openings"] == 3
+    shell = cover.report()["features"][0]
+    assert shell["openings"] == 3
+    # The vents are long with round ends, so they are cut as slots, not traced outlines.
+    assert shell["slots"] == 3
+
+
+@pytest.mark.parametrize("noisy", [False, True], ids=["clean", "noisy"])
+def test_grille_slots_open_where_the_scan_saw_the_inside_across_them(noisy):
+    # Through narrow slots the scanner sees the inside of the far wall, not a hole, so the
+    # outside's gap alone doesn't say whether a slot goes through. Its sides going down do.
+    mesh = fx.cover(grille=True)
+    if noisy:
+        mesh = fx.add_wavy_noise(mesh, 0.05)
+    result = convert(mesh, LEVEL)
+    shell = result.report()["features"][0]
+    assert shell["type"] == "shell"
+    assert result.solid.isValid() and len(result.solid.Solids()) == 1
+    assert shell["openings"] == shell["slots"] == 8  # each with round ends, not a traced outline
+    mid_wall = 15 - 0.9
+    for k in range(-2, 3):
+        assert not inside(result.solid, -20, 3.2 * k, mid_wall)  # each slot is open
+    for k in range(-2, 2):
+        assert inside(result.solid, -20, 3.2 * k + 1.6, mid_wall)  # and the bars between stay
+    for y in (-8, 0, 8):
+        assert not inside(result.solid, 10, y, mid_wall)
 
 
 def test_standoffs_are_bosses_with_screw_holes(cover):

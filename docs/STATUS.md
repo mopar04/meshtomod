@@ -154,6 +154,14 @@ _Last updated: 2026-10-31 (plate countersinks from merged scans)_
     deviation map. Precise (133 s): one valid solid, 98.9% within 1 mm, 76% within 0.3, 34%
     within 0.1 (partial); posts read 5.7 mm there. Before this change every level was
     refused. Verdict: close enough to print and try as a replacement, not yet proven.
+  - **Grille, slot ends and nose (2026-10-31, follow-ups thread):** the top grille now comes
+    out open, every vent and grille slot is cut as a slot with true round ends, and the
+    curved nose is one smooth surface instead of a row of facets. At every level: one valid
+    solid, 24 openings of which 22 are slots, the nose smooth spline faces; 98.3% (Rough),
+    98.6% (Functional) and 98.7% (Precise) of the scan within 1 mm, as before. Functional and
+    Precise still come back partial at their tighter tolerances (72% within 0.3 mm, 35%
+    within 0.1 mm): the panels' sag and the scanner-rounded rims, not the rebuild. Still
+    open: free edges are jagged, the inner ledge reads 0.5 to 1 mm off.
 
 ## Handoff (2026-10-30): Duet M3 thread to the mesh-to-mod channel
 MeshToMod work moves to Zac's mesh-to-mod Duet channel (Zac: the conversation "needs to ...
@@ -188,10 +196,10 @@ move to its bespoke thread"). Pick up from here.
      and back scans, and wiring thicken, axes, sink/extrude, recipe download and
      click-to-delete into the viewer.
 - **In flight:** the follow-ups thread (Duet, branch `claude/project-thread-ivav8i`): the
-  plate's countersinks and a fix for the cancel test that failed main's CI after #26 (one
-  in ten runs; the test, not the app; this PR), then the big Drive scans (waiting on Zac to attach them to
-  the "Scans" release) and the Max4 leftovers (grille, slot ends, curved nose). #26 and #27
-  (the "other side" upload) are merged.
+  Max4 leftovers (grille, slot ends, curved nose; this PR), then the big Drive scans
+  (waiting on Zac to attach them to the "Scans" release). #26, #27 (the "other side"
+  upload) and #28 (plate countersinks, and the cancel test that failed main's CI after #26
+  and #27) are merged.
 
 ## In progress
 - **Merged Top/Bottom scans (2026-10-30):** the merge now keeps every big piece of each scan,
