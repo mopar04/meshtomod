@@ -89,6 +89,12 @@ export interface ConversionReport {
     matrix: number[][];
     trimmed_mm: number;
   };
+  /** Present when a second scan of the other side was merged in. */
+  merge?: {
+    /** Share of the surface both scans saw. */
+    overlap_pct: number;
+    air_pct: number;
+  };
 }
 
 export interface Feature {
@@ -163,9 +169,10 @@ export async function getTolerances() {
   return json<{ default: string; levels: ToleranceLevel[] }>(await fetch("/api/tolerances"));
 }
 
-function form(file: File, fields: Record<string, string>) {
+function form(file: File, fields: Record<string, string>, second?: File | null) {
   const body = new FormData();
   body.append("file", file);
+  if (second) body.append("second_file", second);
   for (const [k, v] of Object.entries(fields)) body.append(k, v);
   return body;
 }
@@ -204,13 +211,22 @@ export const POLL_MS = 1500;
 
 /** Queue a conversion. Big scans take minutes, so the server runs them as jobs: follow it
  * with watchJob, which also keeps telling the server someone is still watching. */
-export async function startJob(file: File, level: string, units: Units, place: PlacementOptions) {
+export async function startJob(
+  file: File,
+  level: string,
+  units: Units,
+  place: PlacementOptions,
+  /** A scan of the part's other side, lined up and merged with the first on the server. */
+  second?: File | null,
+) {
   const fields: Record<string, string> = { level, units, origin: place.origin, up: place.up };
   if (place.face) {
     fields.lay_flat = place.face.normal.join(",");
     fields.trim_flush = String(place.trimFlushMm);
   }
-  return json<JobStatus>(await fetch("/api/jobs", { method: "POST", body: form(file, fields) }));
+  return json<JobStatus>(
+    await fetch("/api/jobs", { method: "POST", body: form(file, fields, second) }),
+  );
 }
 
 /** A job's status. Throws (with the server's reason) once it has expired. */

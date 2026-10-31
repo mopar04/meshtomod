@@ -187,7 +187,9 @@ move to its bespoke thread"). Pick up from here.
   4. The rest of the M3 list: thin walls from measured thickness (bin scan), the cap's front
      and back scans, and wiring thicken, axes, sink/extrude, recipe download and
      click-to-delete into the viewer.
-- **In flight:** PR #26 (Duet), thin-walled covers rebuilt as shells (Max4 follow-up).
+- **In flight:** the follow-ups thread (Duet, branch `claude/project-thread-ivav8i`): the
+  "other side" upload, the plate's countersinks, the big Drive scans and the Max4 leftovers
+  (grille, slot ends, curved nose). #26 is merged.
 
 ## In progress
 - **Merged Top/Bottom scans (2026-10-30):** the merge now keeps every big piece of each scan,
@@ -198,8 +200,10 @@ move to its bespoke thread"). Pick up from here.
   Freeform 98.2% (up from 81%). Still off on the real plate: the M5 countersink comes out
   blind and the M3 as a plain hole; the same pair built from the drawing gets both right.
   Tests: the turned part merged from two sides, and the ring through a plate whose far side
-  the merge didn't join. Merged as #24. The web app's "other side" upload is written (commit
-  4d6a5bd) and can go in now that #22 is merged (see the handoff above).
+  the merge didn't join. Merged as #24. The web app now has "Add a scan of the other side"
+  under the open mesh (2026-10-31, re-applied from commit 4d6a5bd onto #22's job flow): the
+  second scan goes up with the first, the server lines them up and merges them, and the result
+  panel says "Two scans merged" with the overlap.
 
 - **M4 editable history (2026-10-30, Zac: Fusion, Onshape, FreeCAD; "Merge once complete"):**
   the Export menu now offers STEP (default), an editable history for each tool, or one zip
