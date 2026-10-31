@@ -1,6 +1,6 @@
 # Status
 
-_Last updated: 2026-10-30 (merged Top/Bottom scans, #24; handoff to the mesh-to-mod channel)_
+_Last updated: 2026-10-31 (thin-walled covers as shells, PR #26)_
 
 ## Done
 - **M0 scaffold:** API, mesh loading, viewer, Docker, CI.
@@ -143,6 +143,17 @@ _Last updated: 2026-10-30 (merged Top/Bottom scans, #24; handoff to the mesh-to-
     - the two standoffs are solid 6 mm pegs with no screw hole.
   - Fixed here: a crash ("SVD did not converge") when an area's faces point every way, like
     a hollow standoff.
+  - **Thin-wall rebuild (2026-10-31, `shell.py`, PR #26):** the cover now converts as a shell.
+    Rough: one valid solid, walls measured 1.66 mm, 24 panels, 13 openings kept (slots,
+    U notch, open underside), two 6 mm standoffs about 18 mm tall with Ø2.5 mm holes (the
+    scan skinned the holes over, so they get the M3 pilot size and a note says so). 98.3% of
+    the scan within 1 mm, 84% within 0.5 mm. Still wrong: the top grille comes out closed,
+    the curved nose is faceted, free edges are jagged, the inner ledge reads 0.5 to 1 mm off.
+    Functional (90 s): one valid solid, 54 panels, 15 openings, same posts and holes; 98.7%
+    within 1 mm, 86.5% within 0.5, 70% within 0.3, so it is returned as partial with the
+    deviation map. Precise (133 s): one valid solid, 98.9% within 1 mm, 76% within 0.3, 34%
+    within 0.1 (partial); posts read 5.7 mm there. Before this change every level was
+    refused. Verdict: close enough to print and try as a replacement, not yet proven.
 
 ## Handoff (2026-10-30): Duet M3 thread to the mesh-to-mod channel
 MeshToMod work moves to Zac's mesh-to-mod Duet channel (Zac: the conversation "needs to ...
@@ -176,7 +187,7 @@ move to its bespoke thread"). Pick up from here.
   4. The rest of the M3 list: thin walls from measured thickness (bin scan), the cap's front
      and back scans, and wiring thicken, axes, sink/extrude, recipe download and
      click-to-delete into the viewer.
-- **In flight:** nothing. No open Duet PR after #24; no uncommitted work.
+- **In flight:** PR #26 (Duet), thin-walled covers rebuilt as shells (Max4 follow-up).
 
 ## In progress
 - **Merged Top/Bottom scans (2026-10-30):** the merge now keeps every big piece of each scan,

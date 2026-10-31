@@ -1,7 +1,9 @@
+import cadquery as cq
+import numpy as np
 import pytest
 
 from meshtomod import fixtures as fx
-from meshtomod.convert import UnsupportedGeometry, convert
+from meshtomod.convert import PIECES_NOTE, UnsupportedGeometry, convert, judge
 from meshtomod.quality import estimate_noise
 from meshtomod.step_io import face_type_counts, read_step, write_step
 from meshtomod.tolerance import LEVELS
@@ -102,3 +104,20 @@ def test_low_match_is_returned_as_partial(monkeypatch):
     assert result.partial and report["partial"] is True
     assert report["notes"][0].startswith("Partial match: the model matches only 100%")
     assert result.solid.isValid()
+
+
+def test_far_off_model_is_refused(monkeypatch):
+    # A model far off most of the scan is no use as the part: refused, with the reason.
+    monkeypatch.setattr("meshtomod.convert.MIN_USABLE_FIT_PCT", 100.5)
+    with pytest.raises(UnsupportedGeometry, match="only 100% of the scan is within 1 mm"):
+        convert(fx.box(), LEVELS["functional"])
+
+
+def test_model_in_more_pieces_than_the_scan_is_partial():
+    scan = fx.box()
+    two = cq.Compound.makeCompound(
+        [cq.Solid.makeBox(10, 10, 10), cq.Solid.makeBox(10, 10, 10, cq.Vector(20, 0, 0))]
+    )
+    partial, notes = judge(scan, two, np.zeros(len(scan.vertices)), LEVELS["functional"])
+    assert partial
+    assert notes == [PIECES_NOTE.format(2, "one piece")]

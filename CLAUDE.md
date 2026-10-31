@@ -56,6 +56,8 @@ Open PRs are the in-flight list: one place, always current, no merge needed to u
   - `revolve.py` shapes turned about an axis (cones, spheres, tori) fitted as a 2D profile
   - `freeform.py` other smooth curved areas as B-spline height fields (curved top, mound, scoop)
   - `thicken.py` one-sided scans (an open sheet) thickened into a solid wall
+  - `shell.py` thin-walled parts (covers): outside panels plus measured wall thickness, and
+    the standoffs inside as bosses with screw holes
   - `ends.py` flat openings in a scan (an unscanned base or tube end) closed with their plane
   - `cells.py` fallback solid from plane-cut blocks, for scans with gaps and warps
   - `quality.py` scan noise estimate, fit score, deviation colours
